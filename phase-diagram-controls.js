@@ -10,7 +10,8 @@ const STATE = {
   pressUnit: 'atm',
 
   axes: { xMin: -100, xMax: 500, yMin: 0, yMax: 250,
-          xMajor: 100, xMinor: 25, yMajor: 50, yMinor: 10, showGrid: true },
+          xMajor: 100, xMinor: 25, yMajor: 50, yMinor: 10, showGrid: true,
+          grid: { color: '#000000', opacity: 7, width: 0.5 } },
 
   zoom: 100,
 
@@ -77,6 +78,9 @@ function syncStateFromDOM() {
   axes.yMin = numVal('y-min', 0); axes.yMax = numVal('y-max', 250);
   axes.yMajor = numVal('y-major', 50); axes.yMinor = numVal('y-minor', 10);
   axes.showGrid = val('toggle-grid');
+  axes.grid.color   = val('grid-color')   || '#000000';
+  axes.grid.opacity = parseInt(el('grid-opacity')?.value) || 7;
+  axes.grid.width   = parseFloat(el('grid-width')?.value) || 0.5;
 
   ['solid','liquid','gas','super'].forEach(r => {
     regions[r].fill      = val(`fill-${r}`);
@@ -170,6 +174,7 @@ function loadCompound(key) {
   STATE.compoundData = getCompoundInDisplayUnits(key, STATE.tempUnit, STATE.pressUnit);
   updateCompoundInfoCard();
   updateWaterAnomalyUI();
+  autoScaleToCompound(STATE.compoundData);   // auto-scale on every load
   renderDiagram();
 }
 
@@ -242,31 +247,46 @@ function updateAxisLabels() {
 // ── Axes ───────────────────────────────────────────────────────────────────
 function updateAxes() { syncStateFromDOM(); renderDiagram(); }
 
-function autoScaleAxes() {
-  const cd = STATE.compoundData;
-  if (!cd) { showToast('Load a compound first', 'error'); return; }
+// Smart auto-scale: triple point centered view.
+// Triple point sits at ~20% height and ~25% from left, showing all three
+// equilibrium curves meeting at it. Critical point may be off-screen;
+// teachers can rescale manually to show it.
+function autoScaleToCompound(cd) {
+  if (!cd || !cd.triplePoint || !cd.criticalPoint) return;
 
-  const allT = [], allP = [];
-  ['liquidVaporCurve','solidVaporCurve','solidLiquidCurve'].forEach(k => {
-    (cd[k] || []).forEach(pt => { allT.push(pt.T); allP.push(pt.P); });
-  });
-  if (!allT.length) return;
+  const tp  = cd.triplePoint;
+  const cp  = cd.criticalPoint;
+  const svPts = cd.solidVaporCurve || [];
+  const svStartT = svPts.length ? svPts[0].T : tp.T - Math.abs(tp.T) * 0.4;
 
-  const pad = (mn, mx, f) => [mn - (mx-mn)*f, mx + (mx-mn)*f];
-  const [tMin, tMax] = pad(Math.min(...allT), Math.max(...allT), 0.15);
-  const [, pMax]     = pad(0, Math.max(...allP), 0.15);
+  // X: sv-start at left edge, tp at ~25% in, extend right to show LV curve
+  const leftSpan  = tp.T - svStartT;
+  const xMin = svStartT - leftSpan * 0.05;
+  const xMax = tp.T    + leftSpan * 3.2;
 
-  const xMaj = niceTick(tMax - tMin), yMaj = niceTick(pMax);
-  setInp('x-min',   Math.floor(tMin / xMaj) * xMaj);
-  setInp('x-max',   Math.ceil(tMax  / xMaj) * xMaj);
+  // Y: triple point at ~20% height
+  const yMax = tp.P * 5.5;
+  const yMin = 0;
+
+  const xMaj = niceTick(xMax - xMin);
+  const yMaj = niceTick(yMax);
+
+  setInp('x-min',   Math.floor(xMin / xMaj) * xMaj);
+  setInp('x-max',   Math.ceil(xMax  / xMaj) * xMaj);
   setInp('x-major', xMaj);
   setInp('x-minor', parseFloat((xMaj / 4).toPrecision(2)));
   setInp('y-min',   0);
-  setInp('y-max',   Math.ceil(pMax / yMaj) * yMaj);
+  setInp('y-max',   Math.ceil(yMax / yMaj) * yMaj);
   setInp('y-major', yMaj);
   setInp('y-minor', parseFloat((yMaj / 5).toPrecision(2)));
 
   syncStateFromDOM();
+}
+
+function autoScaleAxes() {
+  const cd = STATE.mode === 'fake' ? STATE.fakeCompound : STATE.compoundData;
+  if (!cd) { showToast('Load a compound first', 'error'); return; }
+  autoScaleToCompound(cd);
   renderDiagram();
   showToast('Axes auto-scaled', 'success');
 }
