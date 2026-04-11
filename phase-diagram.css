@@ -72,17 +72,26 @@ body {
 .sidebar {
   width: var(--sidebar-w);
   min-width: var(--sidebar-w);
+  max-width: var(--sidebar-w);
+  height: 100%;
   background: var(--navy-mid);
   border-right: 1px solid var(--border);
-  overflow-y: auto;
+  overflow-y: scroll;   /* always show the scrollbar track */
   overflow-x: hidden;
   display: flex;
   flex-direction: column;
+  flex-shrink: 0;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,0.22) rgba(0,0,0,0.18);
 }
-.sidebar::-webkit-scrollbar { width: 5px; }
-.sidebar::-webkit-scrollbar-track { background: rgba(0,0,0,0.15); }
-.sidebar::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.18); border-radius: 4px; }
-.sidebar::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.28); }
+.sidebar::-webkit-scrollbar { width: 7px; }
+.sidebar::-webkit-scrollbar-track { background: rgba(0,0,0,0.22); }
+.sidebar::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,0.22);
+  border-radius: 4px;
+  border: 1px solid rgba(0,0,0,0.2);
+}
+.sidebar::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.38); }
 
 /* Accordion panels */
 .panel { border-bottom: 1px solid var(--border-sub); }
@@ -548,10 +557,12 @@ input[type="color"]::-webkit-color-swatch { border: none; border-radius: 3px; }
   overflow: auto;
   position: relative;
   padding: 24px;
+  min-height: 0;   /* prevents flex child from overflowing */
 }
 .canvas-container {
   position: relative;
   display: inline-block;
+  flex-shrink: 0;
 }
 #phaseDiagramCanvas {
   background: white;
@@ -563,9 +574,9 @@ input[type="color"]::-webkit-color-swatch { border: none; border-radius: 3px; }
 #phaseDiagramCanvas.dragging { cursor: grabbing; }
 #phaseDiagramCanvas.hover-point { cursor: grab; }
 
-/* Zoom toolbar */
+/* Zoom toolbar — sticky to bottom of canvas-area viewport, not the scroll content */
 .zoom-bar {
-  position: absolute;
+  position: fixed;
   bottom: 18px;
   right: 22px;
   display: flex;
@@ -575,6 +586,7 @@ input[type="color"]::-webkit-color-swatch { border: none; border-radius: 3px; }
   border: 1px solid var(--border);
   border-radius: 20px;
   padding: 6px 12px;
+  z-index: 10;
 }
 .zoom-btn {
   background: none;
