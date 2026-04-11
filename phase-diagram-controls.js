@@ -41,7 +41,7 @@ const STATE = {
   annotations: [],
   fakeLibrary: [],
 
-  drag: { active: false, type: null, id: null, ox: 0, oy: 0, pendingClick: null },
+  drag: { active: false, type: null, id: null, ox: 0, oy: 0, pendingClick: null, endpoint: null },
 
   canvas: { w: 800, h: 600, margin: { top: 60, right: 50, bottom: 72, left: 88 } }
 };
@@ -247,26 +247,28 @@ function updateAxisLabels() {
 // ── Axes ───────────────────────────────────────────────────────────────────
 function updateAxes() { syncStateFromDOM(); renderDiagram(); }
 
-// Smart auto-scale: triple point centered view.
-// Triple point sits at ~20% height and ~25% from left, showing all three
-// equilibrium curves meeting at it. Critical point may be off-screen;
-// teachers can rescale manually to show it.
+// Smart auto-scale: critical-point-centred view.
+// Shows the complete phase diagram: SV curve comes in from the lower-left,
+// all three curves meet at the triple point (which sits near the bottom-left
+// for most real substances), and the LV curve rises to the critical point
+// at ~78% height. This is the standard textbook layout.
 function autoScaleToCompound(cd) {
   if (!cd || !cd.triplePoint || !cd.criticalPoint) return;
 
-  const tp  = cd.triplePoint;
-  const cp  = cd.criticalPoint;
+  const tp    = cd.triplePoint;
+  const cp    = cd.criticalPoint;
   const svPts = cd.solidVaporCurve || [];
-  const svStartT = svPts.length ? svPts[0].T : tp.T - Math.abs(tp.T) * 0.4;
+  const svStartT = svPts.length
+    ? svPts[0].T
+    : tp.T - Math.abs(cp.T - tp.T) * 0.6;
 
-  // X: sv-start at left edge, tp at ~25% in, extend right to show LV curve
-  const leftSpan  = tp.T - svStartT;
-  const xMin = svStartT - leftSpan * 0.05;
-  const xMax = tp.T    + leftSpan * 3.2;
+  // X: SV start at left edge, just past critical point on right
+  const xSpan = cp.T - svStartT;
+  const xMin  = svStartT - xSpan * 0.04;
+  const xMax  = cp.T    + xSpan * 0.12;
 
-  // Y: triple point at ~20% height
-  const yMax = tp.P * 5.5;
-  const yMin = 0;
+  // Y: critical point at ~78% height so the diagram is not cramped at top
+  const yMax = cp.P / 0.78;
 
   const xMaj = niceTick(xMax - xMin);
   const yMaj = niceTick(yMax);
