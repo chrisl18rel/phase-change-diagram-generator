@@ -1,8 +1,10 @@
 // phase-diagram-annotations.js
 
-let _annotCounter  = 0;
+const ANN_MAX_WIDTH = 180;  // max text box width in canvas pixels
+
+let _annotCounter     = 0;
 let _pendingAnnotType = null;   // 'text' | 'arrow-start' | 'arrow-end'
-let _arrowStart    = null;      // canvas-pos {x,y} for arrow first click
+let _arrowStart       = null;
 
 // ── Start add modes ────────────────────────────────────────────────────────
 function startAddTextAnnotation() {
@@ -17,8 +19,49 @@ function startAddArrow() {
   showToast('Click to set arrow start point', '');
 }
 
+// ── Text wrapping helper ────────────────────────────────────────────────────
+function _wrapText(ctx, text, maxWidth) {
+  if (!text) return [''];
+  const words = text.split(' ');
+  const lines = [];
+  let line = '';
+  for (const word of words) {
+    // Handle explicit newlines
+    const parts = word.split('\n');
+    for (let pi = 0; pi < parts.length; pi++) {
+      const test = line ? line + ' ' + parts[pi] : parts[pi];
+      if (ctx.measureText(test).width > maxWidth && line) {
+        lines.push(line);
+        line = parts[pi];
+      } else {
+        line = test;
+      }
+      if (pi < parts.length - 1) { lines.push(line); line = ''; }
+    }
+  }
+  if (line) lines.push(line);
+  return lines.length ? lines : [''];
+}
+
+// ── Hit-test: is a canvas pos inside a rendered text box? ─────────────────
+function _pointInTextBox(pos, ann) {
+  const cv  = dataToCanvas(ann.T, ann.P);
+  const pad = 6;
+  const ctx = el('phaseDiagramCanvas').getContext('2d');
+  ctx.font  = `${ann.fontSize}px DM Sans, sans-serif`;
+  const lines = _wrapText(ctx, ann.text, ANN_MAX_WIDTH);
+  const lineH = ann.fontSize + 4;
+  const bw    = Math.min(
+    Math.max(...lines.map(l => ctx.measureText(l).width)),
+    ANN_MAX_WIDTH
+  ) + pad * 2;
+  const bh    = lines.length * lineH + pad * 2;
+  return pos.x >= cv.x && pos.x <= cv.x + bw &&
+         pos.y >= cv.y - bh / 2 && pos.y <= cv.y + bh / 2;
+}
+
 // ── Intercept handler — called by controls.js canvas mouseup ──────────────
-// Returns true if the click was consumed by annotation mode, false otherwise.
+// Returns true if the click was consumed (annotation mode OR hit existing box).
 function handleAnnotationClick(pos) {
   if (_pendingAnnotType === 'text') {
     _placeTextAnnotation(pos);
@@ -30,7 +73,6 @@ function handleAnnotationClick(pos) {
     _arrowStart = pos;
     _pendingAnnotType = 'arrow-end';
     showToast('Now click to set the arrow end point', '');
-    el('phaseDiagramCanvas').style.cursor = 'crosshair';
     return true;
   }
   if (_pendingAnnotType === 'arrow-end') {
@@ -40,7 +82,11 @@ function handleAnnotationClick(pos) {
     el('phaseDiagramCanvas').style.cursor = 'crosshair';
     return true;
   }
-  return false;
+
+  // In normal mode, consume clicks that land inside existing text boxes
+  // so the user can drag them without accidentally creating a new point.
+  const hit = STATE.annotations.find(a => a.type === 'text' && _pointInTextBox(pos, a));
+  return !!hit;
 }
 
 // ── Place annotations ──────────────────────────────────────────────────────
@@ -48,13 +94,15 @@ function _placeTextAnnotation(pos) {
   const data = canvasToData(pos.x, pos.y);
   _annotCounter++;
   const ann = {
-    id: _annotCounter, type: 'text',
-    T: data.T, P: data.P,
+    id:          _annotCounter,
+    type:        'text',
+    T:           data.T,
+    P:           data.P,
     text:        'Annotation',
     fontSize:    12,
     fontColor:   '#111111',
     bgColor:     '#ffffff',
-    bgOpacity:   80,
+    bgOpacity:   85,
     showBorder:  true,
     borderColor: '#333333'
   };
@@ -69,9 +117,10 @@ function _placeArrowAnnotation(startPos, endPos) {
   const e = canvasToData(endPos.x,   endPos.y);
   _annotCounter++;
   const ann = {
-    id: _annotCounter, type: 'arrow',
-    T: s.T, P: s.P,
-    T2: e.T, P2: e.P,
+    id:    _annotCounter,
+    type:  'arrow',
+    T:     s.T, P: s.P,
+    T2:    e.T, P2: e.P,
     color: '#333333',
     width: 1.5,
     label: ''
@@ -92,14 +141,20 @@ function renderAnnotations(ctx, isExport) {
 }
 
 function _renderTextAnnotation(ctx, ann, isExport) {
-  const cv = dataToCanvas(ann.T, ann.P);
+  const cv  = dataToCanvas(ann.T, ann.P);
   const pad = 6;
 
   ctx.save();
   ctx.font = `${ann.fontSize}px DM Sans, sans-serif`;
-  const tw = ctx.measureText(ann.text).width;
-  const bw = tw + pad * 2;
-  const bh = ann.fontSize + pad * 2;
+
+  // Wrap text to max width
+  const lines = _wrapText(ctx, ann.text, ANN_MAX_WIDTH);
+  const lineH = ann.fontSize + 4;
+  const bw    = Math.min(
+    Math.max(...lines.map(l => ctx.measureText(l).width), 20),
+    ANN_MAX_WIDTH
+  ) + pad * 2;
+  const bh    = lines.length * lineH + pad * 2;
 
   // Background
   if (ann.bgOpacity > 0) {
@@ -114,14 +169,18 @@ function _renderTextAnnotation(ctx, ann, isExport) {
     ctx.stroke();
   }
 
+  // Render each wrapped line
   ctx.fillStyle    = ann.fontColor;
   ctx.textAlign    = 'left';
-  ctx.textBaseline = 'middle';
-  ctx.fillText(ann.text, cv.x + pad, cv.y);
+  ctx.textBaseline = 'top';
+  const textTop = cv.y - bh / 2 + pad;
+  lines.forEach((line, i) => {
+    ctx.fillText(line, cv.x + pad, textTop + i * lineH);
+  });
 
-  // Selection ring in non-export mode
+  // Selection ring (non-export only)
   if (!isExport) {
-    ctx.strokeStyle = 'rgba(74,144,226,0.5)';
+    ctx.strokeStyle = 'rgba(74,144,226,0.45)';
     ctx.lineWidth   = 1;
     ctx.setLineDash([3, 3]);
     ctx.strokeRect(cv.x - 2, cv.y - bh / 2 - 2, bw + 4, bh + 4);
@@ -146,7 +205,6 @@ function _renderArrowAnnotation(ctx, ann, isExport) {
   ctx.lineTo(e.x, e.y);
   ctx.stroke();
 
-  // Arrowhead at endpoint
   const angle = Math.atan2(e.y - s.y, e.x - s.x);
   const hLen  = 10 + ann.width;
   ctx.beginPath();
@@ -167,8 +225,7 @@ function _renderArrowAnnotation(ctx, ann, isExport) {
   ctx.restore();
 }
 
-// ── roundRect cross-browser helper ────────────────────────────────────────
-// Annotations.js needs this independently of draw.js polyfill load order.
+// ── Cross-browser roundRect ────────────────────────────────────────────────
 function _roundRect(ctx, x, y, w, h, r) {
   ctx.beginPath();
   ctx.moveTo(x + r, y);
@@ -185,11 +242,18 @@ function _roundRect(ctx, x, y, w, h, r) {
 
 // ── Drag ───────────────────────────────────────────────────────────────────
 function startAnnotationDrag(pos) {
-  // Iterate in reverse so topmost annotation wins
   for (let i = STATE.annotations.length - 1; i >= 0; i--) {
     const ann = STATE.annotations[i];
     const cv  = dataToCanvas(ann.T, ann.P);
-    if (Math.hypot(pos.x - cv.x, pos.y - cv.y) <= 14) {
+    // Text boxes: drag by clicking anywhere inside the box
+    if (ann.type === 'text' && _pointInTextBox(pos, ann)) {
+      STATE.drag.active = true;
+      STATE.drag.type   = 'annotation';
+      STATE.drag.id     = ann.id;
+      return true;
+    }
+    // Arrows: drag by clicking near the start point
+    if (ann.type === 'arrow' && Math.hypot(pos.x - cv.x, pos.y - cv.y) <= 12) {
       STATE.drag.active = true;
       STATE.drag.type   = 'annotation';
       STATE.drag.id     = ann.id;
@@ -226,23 +290,36 @@ function buildAnnotationCard(ann) {
       </div>
       <div class="field">
         <label>Text</label>
-        <input type="text" value="${ann.text}" oninput="updateAnnProp(${ann.id},'text',this.value)">
+        <textarea
+          id="ann-text-${ann.id}"
+          rows="3"
+          style="resize:vertical;"
+          oninput="updateAnnProp(${ann.id},'text',this.value)"
+        >${ann.text}</textarea>
       </div>
       <div class="point-card-controls">
-        <div class="field"><label>Font Size</label>
+        <div class="field">
+          <label>Font Size</label>
           <input type="number" value="${ann.fontSize}" min="8" max="36"
-            oninput="updateAnnProp(${ann.id},'fontSize',parseFloat(this.value))"></div>
-        <div class="color-row"><label>Font Color</label>
+            oninput="updateAnnProp(${ann.id},'fontSize',parseFloat(this.value))">
+        </div>
+        <div class="color-row">
+          <label>Font Color</label>
           <input type="color" value="${ann.fontColor}"
-            oninput="updateAnnProp(${ann.id},'fontColor',this.value)"></div>
+            oninput="updateAnnProp(${ann.id},'fontColor',this.value)">
+        </div>
       </div>
       <div class="point-card-controls">
-        <div class="color-row"><label>BG Color</label>
+        <div class="color-row">
+          <label>BG Color</label>
           <input type="color" value="${ann.bgColor}"
-            oninput="updateAnnProp(${ann.id},'bgColor',this.value)"></div>
-        <div class="color-row"><label>Border</label>
+            oninput="updateAnnProp(${ann.id},'bgColor',this.value)">
+        </div>
+        <div class="color-row">
+          <label>Border</label>
           <input type="color" value="${ann.borderColor}"
-            oninput="updateAnnProp(${ann.id},'borderColor',this.value)"></div>
+            oninput="updateAnnProp(${ann.id},'borderColor',this.value)">
+        </div>
       </div>
       <div class="toggle-wrap">
         <span class="toggle-label">Show Border</span>
@@ -265,12 +342,16 @@ function buildAnnotationCard(ann) {
           oninput="updateAnnProp(${ann.id},'label',this.value)">
       </div>
       <div class="point-card-controls">
-        <div class="color-row"><label>Color</label>
+        <div class="color-row">
+          <label>Color</label>
           <input type="color" value="${ann.color}"
-            oninput="updateAnnProp(${ann.id},'color',this.value)"></div>
-        <div class="field"><label>Width</label>
+            oninput="updateAnnProp(${ann.id},'color',this.value)">
+        </div>
+        <div class="field">
+          <label>Width</label>
           <input type="number" value="${ann.width}" min="0.5" max="8" step="0.5"
-            oninput="updateAnnProp(${ann.id},'width',parseFloat(this.value))"></div>
+            oninput="updateAnnProp(${ann.id},'width',parseFloat(this.value))">
+        </div>
       </div>
       <button class="btn btn-red btn-sm" style="margin-top:6px;"
         onclick="removeAnnotation(${ann.id})">Remove</button>`;
