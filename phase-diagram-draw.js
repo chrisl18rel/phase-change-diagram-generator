@@ -60,10 +60,13 @@ function toCvs(dataPts) {
 
 // ── Grid ───────────────────────────────────────────────────────────────────
 function drawGrid(ctx, m, pw, ph) {
-  const { xMin, xMax, yMin, yMax, xMajor, yMajor } = STATE.axes;
+  const { xMin, xMax, yMin, yMax, xMajor, yMajor, grid } = STATE.axes;
+  const g = grid || { color: '#000000', opacity: 7, width: 0.5 };
+  const strokeColor = hexToRgba(g.color, (g.opacity || 7) / 100);
+
   ctx.save();
-  ctx.strokeStyle = 'rgba(0,0,0,0.07)';
-  ctx.lineWidth = 0.5;
+  ctx.strokeStyle = strokeColor;
+  ctx.lineWidth   = g.width || 0.5;
 
   const xStart = Math.ceil((xMin + 1e-9) / xMajor) * xMajor;
   for (let t = xStart; t <= xMax + 1e-9; t += xMajor) {
@@ -191,7 +194,8 @@ function drawRegionLabel(ctx, text, x, y) {
 
 // ── Special markers (triple, critical, NMP, NBP) ───────────────────────────
 function drawMarkers(ctx) {
-  const cd = STATE.compoundData || STATE.fakeCompound;
+  // Use mode to pick correct data source — fixes fake markers following drag
+  const cd = STATE.mode === 'fake' ? STATE.fakeCompound : STATE.compoundData;
   if (!cd) return;
 
   const pts = {
@@ -201,52 +205,74 @@ function drawMarkers(ctx) {
     nbp:      cd.normalBoilingPoint
   };
 
+  // Collect placed label rects for collision avoidance
+  const placedRects = [];
+
+  const clampLabel = (rx, ry, rw, rh) => {
+    // Try right of dot first; if overlaps, try left; nudge vertically if needed
+    for (const prev of placedRects) {
+      const overlapX = rx < prev.x + prev.w && rx + rw > prev.x;
+      const overlapY = ry < prev.y + prev.h && ry + rh > prev.y;
+      if (overlapX && overlapY) {
+        ry = prev.y + prev.h + 3;  // push below the overlapping label
+      }
+    }
+    return { rx, ry, rw, rh };
+  };
+
   Object.entries(STATE.markers).forEach(([key, mk]) => {
     if (!mk.show) return;
     const pt = pts[key];
     if (!pt) return;
 
-    // Skip if outside current axes
     const { xMin, xMax, yMin, yMax } = STATE.axes;
     if (pt.T < xMin || pt.T > xMax || pt.P < yMin || pt.P > yMax) return;
 
     const cv = dataToCanvas(pt.T, pt.P);
 
-    // Dotted lines to axes
     if (mk.lines) drawDottedLines(ctx, cv, mk.lineColor, mk.lineWidth);
 
-    // Dot
     ctx.save();
     ctx.beginPath();
     ctx.arc(cv.x, cv.y, mk.size, 0, Math.PI * 2);
-    ctx.fillStyle = mk.color;
+    ctx.fillStyle   = mk.color;
     ctx.fill();
     ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = 1.5;
+    ctx.lineWidth   = 1.5;
     ctx.stroke();
     ctx.restore();
 
-    // Label
+    // Label with collision avoidance
     if (mk.label) {
       ctx.save();
-      ctx.fillStyle = mk.color;
       ctx.font = `600 11px DM Sans, sans-serif`;
-      ctx.textAlign = 'left';
+      const lw = ctx.measureText(mk.label).width;
+      let lx = cv.x + mk.size + 4;
+      let ly = cv.y - 2;
+      const placed = clampLabel(lx, ly - 11, lw, 13);
+      lx = placed.rx; ly = placed.ry + 11;
+      ctx.fillStyle    = mk.color;
+      ctx.textAlign    = 'left';
       ctx.textBaseline = 'bottom';
-      ctx.fillText(mk.label, cv.x + mk.size + 4, cv.y - 2);
+      ctx.fillText(mk.label, lx, ly);
+      placedRects.push(placed);
       ctx.restore();
     }
 
-    // Ordered pair
     if (mk.pair) {
-      const tStr = formatVal(pt.T), pStr = formatVal(pt.P);
-      const pair = `(${tStr}, ${pStr})`;
+      const pair = `(${formatVal(pt.T)}, ${formatVal(pt.P)})`;
       ctx.save();
-      ctx.fillStyle = mk.color;
       ctx.font = `11px DM Mono, monospace`;
-      ctx.textAlign = 'left';
+      const pw2 = ctx.measureText(pair).width;
+      const px = cv.x + mk.size + 4;
+      let py = cv.y + 2;
+      const placed = clampLabel(px, py, pw2, 12);
+      py = placed.ry;
+      ctx.fillStyle    = mk.color;
+      ctx.textAlign    = 'left';
       ctx.textBaseline = 'top';
-      ctx.fillText(pair, cv.x + mk.size + 4, cv.y + 2);
+      ctx.fillText(pair, px, py);
+      placedRects.push(placed);
       ctx.restore();
     }
   });
