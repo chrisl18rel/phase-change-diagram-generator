@@ -11,7 +11,8 @@ const STATE = {
 
   axes: { xMin: -100, xMax: 500, yMin: 0, yMax: 250,
           xMajor: 100, xMinor: 25, yMajor: 50, yMinor: 10, showGrid: true,
-          grid: { color: '#000000', opacity: 7, width: 0.5 } },
+          grid: { color: '#000000', opacity: 7, width: 0.5 },
+          logPressure: false },
 
   zoom: 100,
 
@@ -78,6 +79,7 @@ function syncStateFromDOM() {
   axes.yMin = numVal('y-min', 0); axes.yMax = numVal('y-max', 250);
   axes.yMajor = numVal('y-major', 50); axes.yMinor = numVal('y-minor', 10);
   axes.showGrid = val('toggle-grid');
+  axes.logPressure = val('log-pressure');
   axes.grid.color   = val('grid-color')   || '#000000';
   axes.grid.opacity = parseInt(el('grid-opacity')?.value) || 7;
   axes.grid.width   = parseFloat(el('grid-width')?.value) || 0.5;
@@ -119,19 +121,39 @@ function getPlot() {
 
 function dataToCanvas(T, P) {
   const { m, pw, ph } = getPlot();
-  const { xMin, xMax, yMin, yMax } = STATE.axes;
+  const { xMin, xMax, yMin, yMax, logPressure } = STATE.axes;
+  const xFrac = xMax !== xMin ? (T - xMin) / (xMax - xMin) : 0;
+  let yFrac;
+  if (logPressure && P > 0 && yMin > 0 && yMax > 0) {
+    const logP    = Math.log10(P);
+    const logYMin = Math.log10(yMin);
+    const logYMax = Math.log10(yMax);
+    yFrac = logYMax !== logYMin ? (logP - logYMin) / (logYMax - logYMin) : 0;
+  } else {
+    yFrac = yMax !== yMin ? (P - yMin) / (yMax - yMin) : 0;
+  }
   return {
-    x: m.left + (T - xMin) / (xMax - xMin) * pw,
-    y: m.top  + (1 - (P - yMin) / (yMax - yMin)) * ph
+    x: m.left + xFrac * pw,
+    y: m.top  + (1 - yFrac) * ph
   };
 }
 
 function canvasToData(cx, cy) {
   const { m, pw, ph } = getPlot();
-  const { xMin, xMax, yMin, yMax } = STATE.axes;
+  const { xMin, xMax, yMin, yMax, logPressure } = STATE.axes;
+  const xFrac = (cx - m.left) / pw;
+  const yFrac = 1 - (cy - m.top) / ph;
+  let P;
+  if (logPressure && yMin > 0 && yMax > 0) {
+    const logYMin = Math.log10(yMin);
+    const logYMax = Math.log10(yMax);
+    P = Math.pow(10, logYMin + yFrac * (logYMax - logYMin));
+  } else {
+    P = yMin + yFrac * (yMax - yMin);
+  }
   return {
-    T: xMin + (cx - m.left) / pw * (xMax - xMin),
-    P: yMin + (1 - (cy - m.top) / ph) * (yMax - yMin)
+    T: xMin + xFrac * (xMax - xMin),
+    P
   };
 }
 
@@ -247,11 +269,7 @@ function updateAxisLabels() {
 // ── Axes ───────────────────────────────────────────────────────────────────
 function updateAxes() { syncStateFromDOM(); renderDiagram(); }
 
-// Smart auto-scale: critical-point-centred view.
-// Shows the complete phase diagram: SV curve comes in from the lower-left,
-// all three curves meet at the triple point (which sits near the bottom-left
-// for most real substances), and the LV curve rises to the critical point
-// at ~78% height. This is the standard textbook layout.
+// Smart auto-scale: works for both linear and log pressure modes.
 function autoScaleToCompound(cd) {
   if (!cd || !cd.triplePoint || !cd.criticalPoint) return;
 
@@ -262,27 +280,50 @@ function autoScaleToCompound(cd) {
     ? svPts[0].T
     : tp.T - Math.abs(cp.T - tp.T) * 0.6;
 
-  // X: SV start at left edge, just past critical point on right
+  // X axis: same for both linear and log
   const xSpan = cp.T - svStartT;
   const xMin  = svStartT - xSpan * 0.04;
   const xMax  = cp.T    + xSpan * 0.12;
-
-  // Y: critical point at ~78% height so the diagram is not cramped at top
-  const yMax = cp.P / 0.78;
-
-  const xMaj = niceTick(xMax - xMin);
-  const yMaj = niceTick(yMax);
+  const xMaj  = niceTick(xMax - xMin);
 
   setInp('x-min',   Math.floor(xMin / xMaj) * xMaj);
   setInp('x-max',   Math.ceil(xMax  / xMaj) * xMaj);
   setInp('x-major', xMaj);
   setInp('x-minor', parseFloat((xMaj / 4).toPrecision(2)));
-  setInp('y-min',   0);
-  setInp('y-max',   Math.ceil(yMax / yMaj) * yMaj);
-  setInp('y-major', yMaj);
-  setInp('y-minor', parseFloat((yMaj / 5).toPrecision(2)));
+
+  if (STATE.axes.logPressure) {
+    // Log scale: span from one decade below min SV pressure to well above CP
+    const svPos = svPts.map(p => p.P).filter(p => p > 0);
+    const minP  = svPos.length ? Math.min(...svPos) : tp.P * 0.001;
+    const yMin  = Math.pow(10, Math.floor(Math.log10(minP)));
+    const yMax  = cp.P * 5;
+    setInp('y-min',   yMin);
+    setInp('y-max',   yMax);
+    setInp('y-major', 1);  // unused in log mode
+    setInp('y-minor', 1);
+  } else {
+    // Linear scale: CP at ~78% height
+    const yMax = cp.P / 0.78;
+    const yMaj = niceTick(yMax);
+    setInp('y-min',   0);
+    setInp('y-max',   Math.ceil(yMax / yMaj) * yMaj);
+    setInp('y-major', yMaj);
+    setInp('y-minor', parseFloat((yMaj / 5).toPrecision(2)));
+  }
 
   syncStateFromDOM();
+}
+
+function onLogScaleChange() {
+  STATE.axes.logPressure = val('log-pressure');
+  if (STATE.axes.logPressure) {
+    const curYMin = parseFloat(el('y-min')?.value);
+    if (!curYMin || curYMin <= 0) setInp('y-min', 0.0001);
+  }
+  const cd = STATE.mode === 'fake' ? STATE.fakeCompound : STATE.compoundData;
+  if (cd) autoScaleToCompound(cd);
+  syncStateFromDOM();
+  renderDiagram();
 }
 
 function autoScaleAxes() {
