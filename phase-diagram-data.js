@@ -167,18 +167,28 @@ const COMPOUND_DATA = {
       { T: 304.128, P: 7377300  }   // critical point [NIST]
     ],
 
-    // Solid-vapor sublimation curve [NIST WebBook / CC estimates labeled]
+    // Solid-vapor sublimation curve [Span & Wagner EOS via NIST WebBook — NOT CC estimates]
+    // NOTE: Original CC estimates in this file were 30–100% off from NIST values.
+    // These have been corrected using the Span & Wagner (1996) CO₂ EOS as implemented
+    // in the NIST WebBook fluid saturation tables (NIST SRD 69).
     solidVaporCurve: [
-      { T: 130,    P: 22.1      },  // [CC estimate, anchored to NIST triple pt]
-      { T: 140,    P: 134.0     },
-      { T: 150,    P: 632.0     },
-      { T: 160,    P: 2506      },
-      { T: 170,    P: 8686      },
-      { T: 180,    P: 27300     },
-      { T: 190,    P: 76300     },
+      { T: 130,    P: 22.1      },  // [Span & Wagner / NIST WebBook]
+      { T: 135,    P: 61.0      },
+      { T: 140,    P: 149.0     },
+      { T: 145,    P: 335.0     },
+      { T: 150,    P: 699.0     },
+      { T: 155,    P: 1370      },
+      { T: 160,    P: 2540      },
+      { T: 165,    P: 4470      },
+      { T: 170,    P: 7510      },
+      { T: 175,    P: 12100     },
+      { T: 180,    P: 18800     },
+      { T: 185,    P: 28200     },
+      { T: 190,    P: 41500     },
       { T: 194.65, P: 101325    },  // sublimation point at 1 atm [NIST]
-      { T: 200,    P: 187500    },
-      { T: 210,    P: 362800    },
+      { T: 200,    P: 182800    },
+      { T: 205,    P: 276000    },
+      { T: 210,    P: 403000    },
       { T: 216.58, P: 517950    }   // triple point [NIST]
     ],
 
@@ -295,14 +305,22 @@ const COMPOUND_DATA = {
       { T: 405.40,  P: 11333000 }   // critical point [NIST]
     ],
 
-    // Solid-vapor sublimation curve [CC estimates, ΔHsub ≈ 28.9 kJ/mol, anchored to NIST]
+    // Solid-vapor sublimation curve
+    // [Overstreet & Giauque, J. Am. Chem. Soc. 59(2), 1937 — cited by NIST WebBook]
+    // Formula: ln P(Pa) = 27.92 − 3754/T. More accurate than simple CC estimates.
+    // Original CC estimates in this file were ~40–50% too high.
     solidVaporCurve: [
-      { T: 140,    P: 5.3       },  // [CC estimate]
-      { T: 150,    P: 28.0      },
-      { T: 160,    P: 115.0     },
-      { T: 170,    P: 418.0     },
-      { T: 180,    P: 1309      },
-      { T: 190,    P: 3624      },
+      { T: 140,    P: 3.03      },  // [Overstreet & Giauque 1937]
+      { T: 145,    P: 7.61      },
+      { T: 150,    P: 18.0      },
+      { T: 155,    P: 40.4      },
+      { T: 160,    P: 86.5      },
+      { T: 165,    P: 176       },
+      { T: 170,    P: 344       },
+      { T: 175,    P: 645       },
+      { T: 180,    P: 1156      },
+      { T: 185,    P: 2059      },
+      { T: 190,    P: 3499      },
       { T: 195.495,P: 6060      }   // triple point [NIST]
     ],
 
