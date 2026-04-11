@@ -1,11 +1,11 @@
 // phase-diagram-annotations.js
 
-const ANN_MAX_WIDTH  = 180;  // max text-box width in canvas px
-const ANN_HANDLE_R   = 8;    // radius for arrow endpoint handles
+const ANN_MAX_WIDTH  = 180;
+const ANN_HANDLE_R   = 8;
 
 let _annotCounter     = 0;
-let _pendingAnnotType = null;   // 'text' | 'arrow-start' | 'arrow-end'
-let _arrowStart       = null;   // canvas pos of first arrow click (= head)
+let _pendingAnnotType = null;
+let _arrowStart       = null;
 
 // ── Start add modes ────────────────────────────────────────────────────────
 function startAddTextAnnotation() {
@@ -24,8 +24,8 @@ function startAddArrow() {
 function _wrapText(ctx, text, maxWidth) {
   if (!text) return [''];
   const lines = [];
-  for (const paragraph of text.split('\n')) {
-    const words = paragraph.split(' ');
+  for (const para of text.split('\n')) {
+    const words = para.split(' ');
     let line = '';
     for (const word of words) {
       const test = line ? line + ' ' + word : word;
@@ -41,7 +41,7 @@ function _wrapText(ctx, text, maxWidth) {
   return lines.length ? lines : [''];
 }
 
-// ── Hit-test: is canvas pos inside a rendered text box? ───────────────────
+// ── Hit-test: is a canvas pos inside a rendered text box? ─────────────────
 function _pointInTextBox(pos, ann) {
   const cv  = dataToCanvas(ann.T, ann.P);
   const pad = 6;
@@ -58,8 +58,30 @@ function _pointInTextBox(pos, ann) {
          pos.y >= cv.y - bh/2  && pos.y <= cv.y + bh/2;
 }
 
+// ── Options HTML for attachment dropdowns ─────────────────────────────────
+function _textBoxOptionsHtml(selectedId) {
+  const boxes = STATE.annotations.filter(a => a.type === 'text');
+  let html = `<option value="">— None —</option>`;
+  boxes.forEach(b => {
+    const preview = b.text.length > 18 ? b.text.substring(0, 18) + '…' : b.text;
+    const sel     = selectedId === b.id ? 'selected' : '';
+    html += `<option value="${b.id}" ${sel}>Box #${b.id}: "${preview}"</option>`;
+  });
+  return html;
+}
+
+// Rebuild attachment dropdowns on all arrow cards when text box list changes
+function _refreshAttachDropdowns() {
+  STATE.annotations.forEach(ann => {
+    if (ann.type !== 'arrow') return;
+    const hEl = document.getElementById(`ann-attach-head-${ann.id}`);
+    const tEl = document.getElementById(`ann-attach-tail-${ann.id}`);
+    if (hEl) hEl.innerHTML = _textBoxOptionsHtml(ann.attachHead);
+    if (tEl) tEl.innerHTML = _textBoxOptionsHtml(ann.attachTail);
+  });
+}
+
 // ── Click intercept ────────────────────────────────────────────────────────
-// Called by controls.js before addUserPoint. Returns true if click consumed.
 function handleAnnotationClick(pos) {
   if (_pendingAnnotType === 'text') {
     _placeTextAnnotation(pos);
@@ -68,20 +90,19 @@ function handleAnnotationClick(pos) {
     return true;
   }
   if (_pendingAnnotType === 'arrow-start') {
-    _arrowStart = pos;          // head = first click
+    _arrowStart = pos;
     _pendingAnnotType = 'arrow-end';
     showToast('Now click to place the arrow TAIL', '');
     return true;
   }
   if (_pendingAnnotType === 'arrow-end') {
-    _placeArrowAnnotation(_arrowStart, pos);   // head, tail
+    _placeArrowAnnotation(_arrowStart, pos);
     _pendingAnnotType = null;
     _arrowStart = null;
     el('phaseDiagramCanvas').style.cursor = 'crosshair';
     return true;
   }
-
-  // Normal mode: consume clicks inside existing text boxes so no point is created
+  // Normal mode: consume clicks inside text boxes so no point is accidentally created
   const hit = STATE.annotations.find(a => a.type === 'text' && _pointInTextBox(pos, a));
   return !!hit;
 }
@@ -93,33 +114,28 @@ function _placeTextAnnotation(pos) {
   const ann = {
     id: _annotCounter, type: 'text',
     T: data.T, P: data.P,
-    text:        'Annotation',
-    fontSize:    12,
-    fontColor:   '#111111',
-    bgColor:     '#ffffff',
-    bgOpacity:   85,
-    showBorder:  true,
-    borderColor: '#333333'
+    text: 'Annotation', fontSize: 12,
+    fontColor: '#111111', bgColor: '#ffffff',
+    bgOpacity: 85, showBorder: true, borderColor: '#333333'
   };
   STATE.annotations.push(ann);
   el('annotations-hint').style.display = 'none';
   buildAnnotationCard(ann);
+  _refreshAttachDropdowns();  // update arrow cards to include new box
   renderDiagram();
 }
 
 function _placeArrowAnnotation(headPos, tailPos) {
-  // ann.T/P = HEAD (first click, where arrowhead is drawn)
-  // ann.T2/P2 = TAIL (second click, the other end)
   const h = canvasToData(headPos.x, headPos.y);
   const t = canvasToData(tailPos.x,  tailPos.y);
   _annotCounter++;
   const ann = {
     id: _annotCounter, type: 'arrow',
-    T:  h.T, P:  h.P,    // head
-    T2: t.T, P2: t.P,    // tail
-    color: '#333333',
-    width: 1.5,
-    label: ''
+    T:  h.T, P:  h.P,   // head (arrowhead tip)
+    T2: t.T, P2: t.P,   // tail
+    color: '#333333', width: 1.5, label: '',
+    attachHead: null,    // ID of text box the head is pinned to (or null)
+    attachTail: null     // ID of text box the tail is pinned to (or null)
   };
   STATE.annotations.push(ann);
   el('annotations-hint').style.display = 'none';
@@ -139,7 +155,6 @@ function renderAnnotations(ctx, isExport) {
 function _renderTextAnnotation(ctx, ann, isExport) {
   const cv  = dataToCanvas(ann.T, ann.P);
   const pad = 6;
-
   ctx.save();
   ctx.font = `${ann.fontSize}px DM Sans, sans-serif`;
   const lines = _wrapText(ctx, ann.text, ANN_MAX_WIDTH);
@@ -161,7 +176,6 @@ function _renderTextAnnotation(ctx, ann, isExport) {
     _roundRect(ctx, cv.x, cv.y - bh/2, bw, bh, 3);
     ctx.stroke();
   }
-
   ctx.fillStyle    = ann.fontColor;
   ctx.textAlign    = 'left';
   ctx.textBaseline = 'top';
@@ -179,7 +193,6 @@ function _renderTextAnnotation(ctx, ann, isExport) {
 }
 
 function _renderArrowAnnotation(ctx, ann, isExport) {
-  // ann.T/P = head (arrowhead drawn here), ann.T2/P2 = tail
   const head = dataToCanvas(ann.T,  ann.P);
   const tail = dataToCanvas(ann.T2, ann.P2);
 
@@ -195,7 +208,7 @@ function _renderArrowAnnotation(ctx, ann, isExport) {
   ctx.lineTo(head.x, head.y);
   ctx.stroke();
 
-  // Arrowhead at HEAD (first click / ann.T,P)
+  // Arrowhead at HEAD
   const angle = Math.atan2(head.y - tail.y, head.x - tail.x);
   const hLen  = 10 + ann.width;
   ctx.beginPath();
@@ -205,33 +218,32 @@ function _renderArrowAnnotation(ctx, ann, isExport) {
   ctx.lineTo(head.x - hLen * Math.cos(angle + 0.38), head.y - hLen * Math.sin(angle + 0.38));
   ctx.stroke();
 
-  // Label at midpoint
   if (ann.label) {
     ctx.fillStyle    = ann.color;
     ctx.font         = `${11 + ann.width}px DM Sans, sans-serif`;
     ctx.textAlign    = 'center';
     ctx.textBaseline = 'bottom';
-    const mx = (head.x + tail.x) / 2;
-    const my = Math.min(head.y, tail.y) - 4;
-    ctx.fillText(ann.label, mx, my);
+    ctx.fillText(ann.label, (head.x + tail.x) / 2, Math.min(head.y, tail.y) - 4);
   }
 
-  // Drag handles at both ends (non-export only)
+  // Drag handles at both ends (hidden in export)
   if (!isExport) {
     [
-      { pt: head, label: '▲' },   // head handle
-      { pt: tail, label: '●' }    // tail handle
+      { pt: head, attached: ann.attachHead != null },
+      { pt: tail, attached: ann.attachTail != null }
     ].forEach(h => {
       ctx.beginPath();
       ctx.arc(h.pt.x, h.pt.y, ANN_HANDLE_R, 0, Math.PI * 2);
-      ctx.fillStyle   = hexToRgba(ann.color, 0.20);
-      ctx.strokeStyle = ann.color;
-      ctx.lineWidth   = 1.5;
+      // Gold fill = attached to a text box; default = neutral
+      ctx.fillStyle   = h.attached
+        ? hexToRgba('#c9a03e', 0.30)
+        : hexToRgba(ann.color, 0.18);
+      ctx.strokeStyle = h.attached ? '#c9a03e' : ann.color;
+      ctx.lineWidth   = h.attached ? 2 : 1.5;
       ctx.fill();
       ctx.stroke();
     });
   }
-
   ctx.restore();
 }
 
@@ -258,7 +270,6 @@ function startAnnotationDrag(pos) {
     if (ann.type === 'arrow') {
       const head = dataToCanvas(ann.T,  ann.P);
       const tail = dataToCanvas(ann.T2, ann.P2);
-
       if (Math.hypot(pos.x - head.x, pos.y - head.y) <= ANN_HANDLE_R + 2) {
         STATE.drag.active   = true;
         STATE.drag.type     = 'annotation';
@@ -293,17 +304,63 @@ function moveAnnotation(id, data) {
   if (ann.type === 'arrow') {
     const ep = STATE.drag.endpoint;
     if (ep === 'head') {
+      // Manually dragging head detaches it from any text box
+      ann.attachHead = null;
+      _syncAttachSelect(ann.id, 'head', null);
       ann.T  = data.T;
       ann.P  = data.P;
     } else if (ep === 'tail') {
+      ann.attachTail = null;
+      _syncAttachSelect(ann.id, 'tail', null);
       ann.T2 = data.T;
       ann.P2 = data.P;
     }
   } else {
-    // Text box: move whole annotation
+    // Text box: move the box AND sync any attached arrow endpoints
     ann.T = data.T;
     ann.P = data.P;
+    _syncAttachedArrows(ann);
   }
+}
+
+// After a text box moves, update all arrows attached to it
+function _syncAttachedArrows(textBox) {
+  STATE.annotations.forEach(arrow => {
+    if (arrow.type !== 'arrow') return;
+    if (arrow.attachHead === textBox.id) {
+      arrow.T = textBox.T;
+      arrow.P = textBox.P;
+    }
+    if (arrow.attachTail === textBox.id) {
+      arrow.T2 = textBox.T;
+      arrow.P2 = textBox.P;
+    }
+  });
+}
+
+// Called when the user picks a text box from the attachment dropdown
+function setArrowAttach(arrowId, endpoint, rawVal) {
+  const arrow   = STATE.annotations.find(a => a.id === arrowId);
+  if (!arrow) return;
+  const boxId = rawVal === '' ? null : parseInt(rawVal);
+  const box   = boxId != null ? STATE.annotations.find(a => a.id === boxId) : null;
+
+  if (endpoint === 'head') {
+    arrow.attachHead = boxId;
+    if (box) { arrow.T  = box.T; arrow.P  = box.P; }
+  } else {
+    arrow.attachTail = boxId;
+    if (box) { arrow.T2 = box.T; arrow.P2 = box.P; }
+  }
+  renderDiagram();
+}
+
+// Silently update a select element to reflect a new value
+function _syncAttachSelect(arrowId, endpoint, newVal) {
+  const sel = document.getElementById(
+    endpoint === 'head' ? `ann-attach-head-${arrowId}` : `ann-attach-tail-${arrowId}`
+  );
+  if (sel) sel.value = newVal == null ? '' : String(newVal);
 }
 
 // ── Sidebar cards ──────────────────────────────────────────────────────────
@@ -351,12 +408,16 @@ function buildAnnotationCard(ann) {
       <button class="btn btn-red btn-sm" style="margin-top:6px;"
         onclick="removeAnnotation(${ann.id})">Remove</button>`;
   } else {
+    // Arrow card
+    const hOpts = _textBoxOptionsHtml(ann.attachHead);
+    const tOpts = _textBoxOptionsHtml(ann.attachTail);
     card.innerHTML = `
       <div class="point-card-header">
         <span class="point-card-label">→ Arrow #${ann.id}</span>
       </div>
-      <div class="empty-hint" style="text-align:left; font-style:normal; font-size:0.69rem; color:var(--text-muted);">
-        Drag the ▲ handle to move the <strong>head</strong>, drag ● to move the <strong>tail</strong>.
+      <div class="empty-hint" style="text-align:left;font-style:normal;font-size:0.69rem;color:var(--text-muted);">
+        Drag <strong>▲ head handle</strong> or <strong>● tail handle</strong> to reposition.
+        Attach endpoints to a text box to make them move together.
       </div>
       <div class="field"><label>Label (optional)</label>
         <input type="text" value="${ann.label}"
@@ -368,6 +429,20 @@ function buildAnnotationCard(ann) {
         <div class="field"><label>Width</label>
           <input type="number" value="${ann.width}" min="0.5" max="8" step="0.5"
             oninput="updateAnnProp(${ann.id},'width',parseFloat(this.value))"></div>
+      </div>
+      <div class="field">
+        <label>▲ Attach HEAD to text box</label>
+        <select id="ann-attach-head-${ann.id}"
+          onchange="setArrowAttach(${ann.id},'head',this.value)">
+          ${hOpts}
+        </select>
+      </div>
+      <div class="field">
+        <label>● Attach TAIL to text box</label>
+        <select id="ann-attach-tail-${ann.id}"
+          onchange="setArrowAttach(${ann.id},'tail',this.value)">
+          ${tOpts}
+        </select>
       </div>
       <button class="btn btn-red btn-sm" style="margin-top:6px;"
         onclick="removeAnnotation(${ann.id})">Remove</button>`;
@@ -382,8 +457,15 @@ function updateAnnProp(id, prop, value) {
 }
 
 function removeAnnotation(id) {
+  // Detach any arrows pointing to this annotation
+  STATE.annotations.forEach(arrow => {
+    if (arrow.type !== 'arrow') return;
+    if (arrow.attachHead === id) arrow.attachHead = null;
+    if (arrow.attachTail === id) arrow.attachTail = null;
+  });
   STATE.annotations = STATE.annotations.filter(a => a.id !== id);
   document.getElementById(`ann-card-${id}`)?.remove();
   if (!STATE.annotations.length) el('annotations-hint').style.display = '';
+  _refreshAttachDropdowns();  // remove the deleted box from arrow dropdowns
   renderDiagram();
 }
