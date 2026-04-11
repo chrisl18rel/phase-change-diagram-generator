@@ -69,8 +69,9 @@ function buildFakeCurveData(T_tp, P_tp, T_cp, P_cp, slSlope, lvCurve, svExtent, 
   const cp = { T: toT(T_cp), P: toP(P_cp) };
 
   // Solid-liquid curve: nearly vertical from tp upward.
-  // Cap at 1.5–2.5× critical pressure so the drag handle stays on-screen.
-  const slTop_Pa = P_cp * (1.5 + rng() * 1.0);
+  // End at 1.00–1.15× critical pressure so the drag handle is visible
+  // in the critical-point-centred auto-scale (y_max ≈ 1.28× cp.P).
+  const slTop_Pa = P_cp * (1.00 + rng() * 0.15);
   const dT_sl    = (slTop_Pa - P_tp) / slSlope; // delta in Kelvin
   const slCurve  = [
     tp,
@@ -354,6 +355,14 @@ function findNearDraggable(pos) {
   STATE.points.forEach(pt => {
     const cv = dataToCanvas(pt.T, pt.P);
     if (Math.hypot(pos.x - cv.x, pos.y - cv.y) <= 8) candidates.push(true);
+  });
+  STATE.annotations.forEach(ann => {
+    if (ann.type === 'arrow') {
+      const h = dataToCanvas(ann.T,  ann.P);
+      const t = dataToCanvas(ann.T2, ann.P2);
+      if (Math.hypot(pos.x - h.x, pos.y - h.y) <= 10) candidates.push(true);
+      if (Math.hypot(pos.x - t.x, pos.y - t.y) <= 10) candidates.push(true);
+    }
   });
   return candidates.length > 0;
 }
