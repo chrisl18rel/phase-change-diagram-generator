@@ -60,7 +60,7 @@ function toCvs(dataPts) {
 
 // ── Grid ───────────────────────────────────────────────────────────────────
 function drawGrid(ctx, m, pw, ph) {
-  const { xMin, xMax, yMin, yMax, xMajor, yMajor, grid } = STATE.axes;
+  const { xMin, xMax, yMin, yMax, xMajor, yMajor, grid, logPressure } = STATE.axes;
   const g = grid || { color: '#000000', opacity: 7, width: 0.5 };
   const strokeColor = hexToRgba(g.color, (g.opacity || 7) / 100);
 
@@ -68,16 +68,29 @@ function drawGrid(ctx, m, pw, ph) {
   ctx.strokeStyle = strokeColor;
   ctx.lineWidth   = g.width || 0.5;
 
+  // X grid lines (same for linear and log)
   const xStart = Math.ceil((xMin + 1e-9) / xMajor) * xMajor;
   for (let t = xStart; t <= xMax + 1e-9; t += xMajor) {
     const cx = dataToCanvas(t, yMin).x;
     ctx.beginPath(); ctx.moveTo(cx, m.top); ctx.lineTo(cx, m.top + ph); ctx.stroke();
   }
 
-  const yStart = Math.ceil((yMin + 1e-9) / yMajor) * yMajor;
-  for (let p = yStart; p <= yMax + 1e-9; p += yMajor) {
-    const cy = dataToCanvas(xMin, p).y;
-    ctx.beginPath(); ctx.moveTo(m.left, cy); ctx.lineTo(m.left + pw, cy); ctx.stroke();
+  // Y grid lines
+  if (logPressure && yMin > 0 && yMax > 0) {
+    const dMin = Math.floor(Math.log10(yMin));
+    const dMax = Math.ceil(Math.log10(yMax));
+    for (let d = dMin; d <= dMax; d++) {
+      const P = Math.pow(10, d);
+      if (P < yMin * 0.99 || P > yMax * 1.01) continue;
+      const cy = dataToCanvas(xMin, P).y;
+      ctx.beginPath(); ctx.moveTo(m.left, cy); ctx.lineTo(m.left + pw, cy); ctx.stroke();
+    }
+  } else {
+    const yStart = Math.ceil((yMin + 1e-9) / yMajor) * yMajor;
+    for (let p = yStart; p <= yMax + 1e-9; p += yMajor) {
+      const cy = dataToCanvas(xMin, p).y;
+      ctx.beginPath(); ctx.moveTo(m.left, cy); ctx.lineTo(m.left + pw, cy); ctx.stroke();
+    }
   }
   ctx.restore();
 }
@@ -129,19 +142,44 @@ function drawAxes(ctx, m, pw, ph) {
   ctx.textAlign = 'right';
   ctx.textBaseline = 'middle';
 
-  const yStart = Math.ceil((yMin + 1e-9) / yMajor) * yMajor;
-  for (let p = yStart; p <= yMax + 1e-9; p += yMajor) {
-    const cy = dataToCanvas(xMin, p).y;
-    drawTick(m.left, cy, m.left - 7, cy);
-    ctx.fillText(formatVal(p), m.left - 10, cy);
-  }
+  if (STATE.axes.logPressure && yMin > 0 && yMax > 0) {
+    // ── Log scale Y ticks ──────────────────────────────────────────────────
+    const logYMin = Math.log10(yMin);
+    const logYMax = Math.log10(yMax);
+    const dMin = Math.floor(logYMin);
+    const dMax = Math.ceil(logYMax);
 
-  if (yMinor > 0 && yMajor / yMinor <= 50) {
-    const yMinStart = Math.ceil((yMin + 1e-9) / yMinor) * yMinor;
-    for (let p = yMinStart; p <= yMax + 1e-9; p += yMinor) {
-      if (Math.abs(p % yMajor) < 1e-6 * yMajor) continue;
+    for (let d = dMin; d <= dMax; d++) {
+      const P = Math.pow(10, d);
+      if (P < yMin * 0.99 || P > yMax * 1.01) continue;
+      const cy = dataToCanvas(xMin, P).y;
+      drawTick(m.left, cy, m.left - 7, cy);
+      ctx.fillText(formatVal(P), m.left - 10, cy);
+
+      // Minor ticks at 2–9 × 10^d
+      for (let sub = 2; sub <= 9; sub++) {
+        const Psub = sub * Math.pow(10, d);
+        if (Psub < yMin || Psub > yMax) continue;
+        const cySub = dataToCanvas(xMin, Psub).y;
+        drawTick(m.left, cySub, m.left - 4, cySub);
+      }
+    }
+  } else {
+    // ── Linear scale Y ticks ──────────────────────────────────────────────
+    const yStart = Math.ceil((yMin + 1e-9) / yMajor) * yMajor;
+    for (let p = yStart; p <= yMax + 1e-9; p += yMajor) {
       const cy = dataToCanvas(xMin, p).y;
-      drawTick(m.left, cy, m.left - 4, cy);
+      drawTick(m.left, cy, m.left - 7, cy);
+      ctx.fillText(formatVal(p), m.left - 10, cy);
+    }
+
+    if (yMinor > 0 && yMajor / yMinor <= 50) {
+      const yMinStart = Math.ceil((yMin + 1e-9) / yMinor) * yMinor;
+      for (let p = yMinStart; p <= yMax + 1e-9; p += yMinor) {
+        if (Math.abs(p % yMajor) < 1e-6 * yMajor) continue;
+        const cy = dataToCanvas(xMin, p).y;
+        drawTick(m.left, cy, m.left - 4, cy);
+      }
     }
   }
 
