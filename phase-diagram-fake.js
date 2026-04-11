@@ -23,7 +23,7 @@ function generateFakeCompound() {
   const fc = _buildFakeCompound();
   STATE.fakeCompound = fc;
   el('fake-name').value = fc.name;
-  autoScaleAxesForFake(fc);
+  autoScaleToCompound(fc);   // use same smart scale as real compounds
   setMode('fake');
   renderDiagram();
 }
@@ -32,37 +32,30 @@ function _buildFakeCompound() {
   const seed = Date.now();
   const rng = _seededRng(seed);
 
-  // All values in current DISPLAY units so the user sees sensible numbers
-  // Generate in Kelvin / Pa internally, then convert
-  const T_tp_K = 150 + rng() * 300;          // triple point temp K: 150-450
-  const P_tp_Pa = Math.pow(10, 2 + rng() * 4); // triple point P Pa: 100-1e6
+  const T_tp_K  = 150 + rng() * 300;              // triple point temp K: 150-450
+  const T_cp_K  = T_tp_K * (1.5 + rng() * 1.5);  // critical T: 1.5-3× triple
 
-  const T_cp_K = T_tp_K * (1.5 + rng() * 1.5); // critical T: 1.5-3x triple
-  const P_cp_Pa = P_tp_Pa * (10 + rng() * 90);  // critical P: 10-100x triple
+  // Make P_tp 8–18% of P_cp so triple point is clearly visible on the diagram
+  const P_cp_Pa = Math.pow(10, 5 + rng() * 2);            // critical P: 100k-10M Pa
+  const P_tp_Pa = P_cp_Pa * (0.08 + rng() * 0.10);        // triple P: 8-18% of critical
 
-  // Slope multiplier for SL line (mostly upward, slight variation)
-  const slSlope = 20e6 + rng() * 30e6;  // dP/dT Pa/K
-
-  // LV curvature factor (higher = more curved)
-  const lvCurve = 0.6 + rng() * 0.8;
-
-  // SV extent — how far left the SV curve extends (fraction of x range)
-  const svExtent = 0.4 + rng() * 0.4;
+  const slSlope  = 20e6 + rng() * 30e6;   // dP/dT Pa/K for SL line
+  const lvCurve  = 0.6  + rng() * 0.8;   // LV curvature exponent
+  const svExtent = 0.4  + rng() * 0.4;   // how far left SV extends
 
   const adjectives = ['Alpha','Beta','Gamma','Delta','Omega','Sigma','Zeta','Eta'];
   const nouns      = ['Compound','Substance','Element','Species','Phase','Matter'];
-  const name = adjectives[Math.floor(rng()*adjectives.length)] + '-' + nouns[Math.floor(rng()*nouns.length)];
+  const name = adjectives[Math.floor(rng()*adjectives.length)] + '-' +
+               nouns[Math.floor(rng()*nouns.length)];
 
   return {
     id: seed,
     name,
-    // Store in K/Pa for canonical form
     _T_tp: T_tp_K, _P_tp: P_tp_Pa,
     _T_cp: T_cp_K, _P_cp: P_cp_Pa,
     _slSlope: slSlope,
     _lvCurve: lvCurve,
     _svExtent: svExtent,
-    // Pre-compute display-unit data
     ...buildFakeCurveData(T_tp_K, P_tp_Pa, T_cp_K, P_cp_Pa, slSlope, lvCurve, svExtent, rng)
   };
 }
@@ -75,8 +68,9 @@ function buildFakeCurveData(T_tp, P_tp, T_cp, P_cp, slSlope, lvCurve, svExtent, 
   const tp = { T: toT(T_tp), P: toP(P_tp) };
   const cp = { T: toT(T_cp), P: toP(P_cp) };
 
-  // Solid-liquid curve: nearly vertical from tp upward to ~50-100× triple pressure
-  const slTop_Pa = P_tp * (50 + rng() * 50);
+  // Solid-liquid curve: nearly vertical from tp upward.
+  // Cap at 1.5–2.5× critical pressure so the drag handle stays on-screen.
+  const slTop_Pa = P_cp * (1.5 + rng() * 1.0);
   const dT_sl    = (slTop_Pa - P_tp) / slSlope; // delta in Kelvin
   const slCurve  = [
     tp,
@@ -295,15 +289,23 @@ function _moveFakeKeyPoint(type, data) {
     fc._handleSL = { T: fc._handleSL.T + dT, P: fc._handleSL.P + dP };
     fc._handleSV = { T: fc._handleSV.T + dT, P: fc._handleSV.P + dP };
   } else if (type === 'critical') {
-    const dT = data.T - fc.criticalPoint.T;
-    const dP = data.P - fc.criticalPoint.P;
     fc.criticalPoint = { T: data.T, P: data.P };
-    // Shift LV curve far end; triple point stays fixed
-    const lv = fc.liquidVaporCurve;
-    if (lv.length > 1) {
-      lv[lv.length - 1] = { T: data.T, P: data.P };
-      fc._handleLV = { T: data.T, P: data.P };
+    // Redistribute ALL LV curve points between fixed triple point and new critical point.
+    // Without this, moving cp only updates the last point and the curve appears
+    // to start from an arbitrary mid-point.
+    const lv  = fc.liquidVaporCurve;
+    const n   = lv.length;
+    const tp  = fc.triplePoint;
+    const exp = fc._lvCurve || 1.3;  // preserve original curvature shape
+    for (let i = 0; i < n; i++) {
+      const frac  = i / (n - 1);
+      const fracP = Math.pow(frac, exp);
+      lv[i] = {
+        T: tp.T + (data.T - tp.T) * frac,
+        P: tp.P + (data.P - tp.P) * fracP
+      };
     }
+    fc._handleLV = { T: data.T, P: data.P };
   }
 }
 
