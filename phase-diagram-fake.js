@@ -283,12 +283,14 @@ function _moveFakeKeyPoint(type, data) {
     const dT = data.T - fc.triplePoint.T;
     const dP = data.P - fc.triplePoint.P;
     fc.triplePoint = { T: data.T, P: data.P };
-    // Shift all curve points by the same delta (keeps curves attached)
+    // Shift ALL curve points AND key markers by the same delta
     ['solidLiquidCurve','liquidVaporCurve','solidVaporCurve'].forEach(k => {
       fc[k] = fc[k].map(p => ({ T: p.T + dT, P: p.P + dP }));
     });
-    fc._handleSL = { T: fc._handleSL.T + dT, P: fc._handleSL.P + dP };
-    fc._handleSV = { T: fc._handleSV.T + dT, P: fc._handleSV.P + dP };
+    fc._handleSL   = { T: fc._handleSL.T   + dT, P: fc._handleSL.P   + dP };
+    fc._handleSV   = { T: fc._handleSV.T   + dT, P: fc._handleSV.P   + dP };
+    fc.criticalPoint = { T: fc.criticalPoint.T + dT, P: fc.criticalPoint.P + dP };
+    fc._handleLV   = { T: fc._handleLV.T   + dT, P: fc._handleLV.P   + dP };
   } else if (type === 'critical') {
     fc.criticalPoint = { T: data.T, P: data.P };
     // Redistribute ALL LV curve points between fixed triple point and new critical point.
