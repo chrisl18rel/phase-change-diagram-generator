@@ -16,7 +16,7 @@
   <header class="app-header">
     <h1>Phase Diagram Generator</h1>
     <span class="hint">— Click the graph to plot points &nbsp;·&nbsp; Drag points to move them</span>
-    <span style="margin-left:auto; font-size:0.65rem; font-family:'DM Mono',monospace; color:var(--text-muted); opacity:0.6;">v1.2</span>
+    <span style="margin-left:auto; font-size:0.65rem; font-family:'DM Mono',monospace; color:var(--text-muted); opacity:0.6;">v1.3</span>
   </header>
 
   <div class="app-body">
@@ -120,6 +120,18 @@
               <button onclick="setPressUnit('Torr', this)">Torr</button>
               <button onclick="setPressUnit('PSI', this)">PSI</button>
             </div>
+          </div>
+          <div class="toggle-wrap">
+            <span class="toggle-label" style="font-size:0.72rem;">
+              Log Pressure Scale
+              <span style="font-size:0.65rem; color:var(--text-muted); display:block; margin-top:2px;">
+                Recommended for water &amp; most real compounds
+              </span>
+            </span>
+            <label class="toggle-switch">
+              <input type="checkbox" id="log-pressure" onchange="onLogScaleChange()">
+              <span class="toggle-slider"></span>
+            </label>
           </div>
         </div>
       </div>
