@@ -1,10 +1,11 @@
 // phase-diagram-annotations.js
 
-const ANN_MAX_WIDTH = 180;  // max text box width in canvas pixels
+const ANN_MAX_WIDTH  = 180;  // max text-box width in canvas px
+const ANN_HANDLE_R   = 8;    // radius for arrow endpoint handles
 
 let _annotCounter     = 0;
 let _pendingAnnotType = null;   // 'text' | 'arrow-start' | 'arrow-end'
-let _arrowStart       = null;
+let _arrowStart       = null;   // canvas pos of first arrow click (= head)
 
 // ── Start add modes ────────────────────────────────────────────────────────
 function startAddTextAnnotation() {
@@ -16,34 +17,31 @@ function startAddTextAnnotation() {
 function startAddArrow() {
   _pendingAnnotType = 'arrow-start';
   el('phaseDiagramCanvas').style.cursor = 'crosshair';
-  showToast('Click to set arrow start point', '');
+  showToast('Click to place the arrow HEAD (tip), then click again for the tail', '');
 }
 
-// ── Text wrapping helper ────────────────────────────────────────────────────
+// ── Text wrap helper ───────────────────────────────────────────────────────
 function _wrapText(ctx, text, maxWidth) {
   if (!text) return [''];
-  const words = text.split(' ');
   const lines = [];
-  let line = '';
-  for (const word of words) {
-    // Handle explicit newlines
-    const parts = word.split('\n');
-    for (let pi = 0; pi < parts.length; pi++) {
-      const test = line ? line + ' ' + parts[pi] : parts[pi];
+  for (const paragraph of text.split('\n')) {
+    const words = paragraph.split(' ');
+    let line = '';
+    for (const word of words) {
+      const test = line ? line + ' ' + word : word;
       if (ctx.measureText(test).width > maxWidth && line) {
         lines.push(line);
-        line = parts[pi];
+        line = word;
       } else {
         line = test;
       }
-      if (pi < parts.length - 1) { lines.push(line); line = ''; }
     }
+    lines.push(line);
   }
-  if (line) lines.push(line);
   return lines.length ? lines : [''];
 }
 
-// ── Hit-test: is a canvas pos inside a rendered text box? ─────────────────
+// ── Hit-test: is canvas pos inside a rendered text box? ───────────────────
 function _pointInTextBox(pos, ann) {
   const cv  = dataToCanvas(ann.T, ann.P);
   const pad = 6;
@@ -51,17 +49,17 @@ function _pointInTextBox(pos, ann) {
   ctx.font  = `${ann.fontSize}px DM Sans, sans-serif`;
   const lines = _wrapText(ctx, ann.text, ANN_MAX_WIDTH);
   const lineH = ann.fontSize + 4;
-  const bw    = Math.min(
-    Math.max(...lines.map(l => ctx.measureText(l).width)),
+  const bw = Math.min(
+    Math.max(...lines.map(l => ctx.measureText(l).width), 20),
     ANN_MAX_WIDTH
   ) + pad * 2;
-  const bh    = lines.length * lineH + pad * 2;
-  return pos.x >= cv.x && pos.x <= cv.x + bw &&
-         pos.y >= cv.y - bh / 2 && pos.y <= cv.y + bh / 2;
+  const bh = lines.length * lineH + pad * 2;
+  return pos.x >= cv.x         && pos.x <= cv.x + bw &&
+         pos.y >= cv.y - bh/2  && pos.y <= cv.y + bh/2;
 }
 
-// ── Intercept handler — called by controls.js canvas mouseup ──────────────
-// Returns true if the click was consumed (annotation mode OR hit existing box).
+// ── Click intercept ────────────────────────────────────────────────────────
+// Called by controls.js before addUserPoint. Returns true if click consumed.
 function handleAnnotationClick(pos) {
   if (_pendingAnnotType === 'text') {
     _placeTextAnnotation(pos);
@@ -70,34 +68,31 @@ function handleAnnotationClick(pos) {
     return true;
   }
   if (_pendingAnnotType === 'arrow-start') {
-    _arrowStart = pos;
+    _arrowStart = pos;          // head = first click
     _pendingAnnotType = 'arrow-end';
-    showToast('Now click to set the arrow end point', '');
+    showToast('Now click to place the arrow TAIL', '');
     return true;
   }
   if (_pendingAnnotType === 'arrow-end') {
-    _placeArrowAnnotation(_arrowStart, pos);
+    _placeArrowAnnotation(_arrowStart, pos);   // head, tail
     _pendingAnnotType = null;
     _arrowStart = null;
     el('phaseDiagramCanvas').style.cursor = 'crosshair';
     return true;
   }
 
-  // In normal mode, consume clicks that land inside existing text boxes
-  // so the user can drag them without accidentally creating a new point.
+  // Normal mode: consume clicks inside existing text boxes so no point is created
   const hit = STATE.annotations.find(a => a.type === 'text' && _pointInTextBox(pos, a));
   return !!hit;
 }
 
-// ── Place annotations ──────────────────────────────────────────────────────
+// ── Place ──────────────────────────────────────────────────────────────────
 function _placeTextAnnotation(pos) {
   const data = canvasToData(pos.x, pos.y);
   _annotCounter++;
   const ann = {
-    id:          _annotCounter,
-    type:        'text',
-    T:           data.T,
-    P:           data.P,
+    id: _annotCounter, type: 'text',
+    T: data.T, P: data.P,
     text:        'Annotation',
     fontSize:    12,
     fontColor:   '#111111',
@@ -112,15 +107,16 @@ function _placeTextAnnotation(pos) {
   renderDiagram();
 }
 
-function _placeArrowAnnotation(startPos, endPos) {
-  const s = canvasToData(startPos.x, startPos.y);
-  const e = canvasToData(endPos.x,   endPos.y);
+function _placeArrowAnnotation(headPos, tailPos) {
+  // ann.T/P = HEAD (first click, where arrowhead is drawn)
+  // ann.T2/P2 = TAIL (second click, the other end)
+  const h = canvasToData(headPos.x, headPos.y);
+  const t = canvasToData(tailPos.x,  tailPos.y);
   _annotCounter++;
   const ann = {
-    id:    _annotCounter,
-    type:  'arrow',
-    T:     s.T, P: s.P,
-    T2:    e.T, P2: e.P,
+    id: _annotCounter, type: 'arrow',
+    T:  h.T, P:  h.P,    // head
+    T2: t.T, P2: t.P,    // tail
     color: '#333333',
     width: 1.5,
     label: ''
@@ -146,53 +142,46 @@ function _renderTextAnnotation(ctx, ann, isExport) {
 
   ctx.save();
   ctx.font = `${ann.fontSize}px DM Sans, sans-serif`;
-
-  // Wrap text to max width
   const lines = _wrapText(ctx, ann.text, ANN_MAX_WIDTH);
   const lineH = ann.fontSize + 4;
-  const bw    = Math.min(
+  const bw = Math.min(
     Math.max(...lines.map(l => ctx.measureText(l).width), 20),
     ANN_MAX_WIDTH
   ) + pad * 2;
-  const bh    = lines.length * lineH + pad * 2;
+  const bh = lines.length * lineH + pad * 2;
 
-  // Background
   if (ann.bgOpacity > 0) {
     ctx.fillStyle = hexToRgba(ann.bgColor, ann.bgOpacity / 100);
-    _roundRect(ctx, cv.x, cv.y - bh / 2, bw, bh, 3);
+    _roundRect(ctx, cv.x, cv.y - bh/2, bw, bh, 3);
     ctx.fill();
   }
   if (ann.showBorder) {
     ctx.strokeStyle = ann.borderColor;
     ctx.lineWidth   = 1;
-    _roundRect(ctx, cv.x, cv.y - bh / 2, bw, bh, 3);
+    _roundRect(ctx, cv.x, cv.y - bh/2, bw, bh, 3);
     ctx.stroke();
   }
 
-  // Render each wrapped line
   ctx.fillStyle    = ann.fontColor;
   ctx.textAlign    = 'left';
   ctx.textBaseline = 'top';
-  const textTop = cv.y - bh / 2 + pad;
-  lines.forEach((line, i) => {
-    ctx.fillText(line, cv.x + pad, textTop + i * lineH);
-  });
+  const textTop = cv.y - bh/2 + pad;
+  lines.forEach((line, i) => ctx.fillText(line, cv.x + pad, textTop + i * lineH));
 
-  // Selection ring (non-export only)
   if (!isExport) {
-    ctx.strokeStyle = 'rgba(74,144,226,0.45)';
+    ctx.strokeStyle = 'rgba(74,144,226,0.4)';
     ctx.lineWidth   = 1;
     ctx.setLineDash([3, 3]);
-    ctx.strokeRect(cv.x - 2, cv.y - bh / 2 - 2, bw + 4, bh + 4);
+    ctx.strokeRect(cv.x - 2, cv.y - bh/2 - 2, bw + 4, bh + 4);
     ctx.setLineDash([]);
   }
-
   ctx.restore();
 }
 
 function _renderArrowAnnotation(ctx, ann, isExport) {
-  const s = dataToCanvas(ann.T,  ann.P);
-  const e = dataToCanvas(ann.T2, ann.P2);
+  // ann.T/P = head (arrowhead drawn here), ann.T2/P2 = tail
+  const head = dataToCanvas(ann.T,  ann.P);
+  const tail = dataToCanvas(ann.T2, ann.P2);
 
   ctx.save();
   ctx.strokeStyle = ann.color;
@@ -200,26 +189,47 @@ function _renderArrowAnnotation(ctx, ann, isExport) {
   ctx.lineJoin    = 'round';
   ctx.lineCap     = 'round';
 
+  // Line: tail → head
   ctx.beginPath();
-  ctx.moveTo(s.x, s.y);
-  ctx.lineTo(e.x, e.y);
+  ctx.moveTo(tail.x, tail.y);
+  ctx.lineTo(head.x, head.y);
   ctx.stroke();
 
-  const angle = Math.atan2(e.y - s.y, e.x - s.x);
+  // Arrowhead at HEAD (first click / ann.T,P)
+  const angle = Math.atan2(head.y - tail.y, head.x - tail.x);
   const hLen  = 10 + ann.width;
   ctx.beginPath();
-  ctx.moveTo(e.x, e.y);
-  ctx.lineTo(e.x - hLen * Math.cos(angle - 0.38), e.y - hLen * Math.sin(angle - 0.38));
-  ctx.moveTo(e.x, e.y);
-  ctx.lineTo(e.x - hLen * Math.cos(angle + 0.38), e.y - hLen * Math.sin(angle + 0.38));
+  ctx.moveTo(head.x, head.y);
+  ctx.lineTo(head.x - hLen * Math.cos(angle - 0.38), head.y - hLen * Math.sin(angle - 0.38));
+  ctx.moveTo(head.x, head.y);
+  ctx.lineTo(head.x - hLen * Math.cos(angle + 0.38), head.y - hLen * Math.sin(angle + 0.38));
   ctx.stroke();
 
+  // Label at midpoint
   if (ann.label) {
     ctx.fillStyle    = ann.color;
     ctx.font         = `${11 + ann.width}px DM Sans, sans-serif`;
     ctx.textAlign    = 'center';
     ctx.textBaseline = 'bottom';
-    ctx.fillText(ann.label, (s.x + e.x) / 2, Math.min(s.y, e.y) - 4);
+    const mx = (head.x + tail.x) / 2;
+    const my = Math.min(head.y, tail.y) - 4;
+    ctx.fillText(ann.label, mx, my);
+  }
+
+  // Drag handles at both ends (non-export only)
+  if (!isExport) {
+    [
+      { pt: head, label: '▲' },   // head handle
+      { pt: tail, label: '●' }    // tail handle
+    ].forEach(h => {
+      ctx.beginPath();
+      ctx.arc(h.pt.x, h.pt.y, ANN_HANDLE_R, 0, Math.PI * 2);
+      ctx.fillStyle   = hexToRgba(ann.color, 0.20);
+      ctx.strokeStyle = ann.color;
+      ctx.lineWidth   = 1.5;
+      ctx.fill();
+      ctx.stroke();
+    });
   }
 
   ctx.restore();
@@ -244,19 +254,32 @@ function _roundRect(ctx, x, y, w, h, r) {
 function startAnnotationDrag(pos) {
   for (let i = STATE.annotations.length - 1; i >= 0; i--) {
     const ann = STATE.annotations[i];
-    const cv  = dataToCanvas(ann.T, ann.P);
-    // Text boxes: drag by clicking anywhere inside the box
-    if (ann.type === 'text' && _pointInTextBox(pos, ann)) {
-      STATE.drag.active = true;
-      STATE.drag.type   = 'annotation';
-      STATE.drag.id     = ann.id;
-      return true;
+
+    if (ann.type === 'arrow') {
+      const head = dataToCanvas(ann.T,  ann.P);
+      const tail = dataToCanvas(ann.T2, ann.P2);
+
+      if (Math.hypot(pos.x - head.x, pos.y - head.y) <= ANN_HANDLE_R + 2) {
+        STATE.drag.active   = true;
+        STATE.drag.type     = 'annotation';
+        STATE.drag.id       = ann.id;
+        STATE.drag.endpoint = 'head';
+        return true;
+      }
+      if (Math.hypot(pos.x - tail.x, pos.y - tail.y) <= ANN_HANDLE_R + 2) {
+        STATE.drag.active   = true;
+        STATE.drag.type     = 'annotation';
+        STATE.drag.id       = ann.id;
+        STATE.drag.endpoint = 'tail';
+        return true;
+      }
     }
-    // Arrows: drag by clicking near the start point
-    if (ann.type === 'arrow' && Math.hypot(pos.x - cv.x, pos.y - cv.y) <= 12) {
-      STATE.drag.active = true;
-      STATE.drag.type   = 'annotation';
-      STATE.drag.id     = ann.id;
+
+    if (ann.type === 'text' && _pointInTextBox(pos, ann)) {
+      STATE.drag.active   = true;
+      STATE.drag.type     = 'annotation';
+      STATE.drag.id       = ann.id;
+      STATE.drag.endpoint = null;
       return true;
     }
   }
@@ -266,14 +289,21 @@ function startAnnotationDrag(pos) {
 function moveAnnotation(id, data) {
   const ann = STATE.annotations.find(a => a.id === id);
   if (!ann) return;
+
   if (ann.type === 'arrow') {
-    const dT = data.T - ann.T;
-    const dP = data.P - ann.P;
-    ann.T2 += dT;
-    ann.P2 += dP;
+    const ep = STATE.drag.endpoint;
+    if (ep === 'head') {
+      ann.T  = data.T;
+      ann.P  = data.P;
+    } else if (ep === 'tail') {
+      ann.T2 = data.T;
+      ann.P2 = data.P;
+    }
+  } else {
+    // Text box: move whole annotation
+    ann.T = data.T;
+    ann.P = data.P;
   }
-  ann.T = data.T;
-  ann.P = data.P;
 }
 
 // ── Sidebar cards ──────────────────────────────────────────────────────────
@@ -290,36 +320,25 @@ function buildAnnotationCard(ann) {
       </div>
       <div class="field">
         <label>Text</label>
-        <textarea
-          id="ann-text-${ann.id}"
-          rows="3"
-          style="resize:vertical;"
+        <textarea id="ann-text-${ann.id}" rows="3"
           oninput="updateAnnProp(${ann.id},'text',this.value)"
         >${ann.text}</textarea>
       </div>
       <div class="point-card-controls">
-        <div class="field">
-          <label>Font Size</label>
+        <div class="field"><label>Font Size</label>
           <input type="number" value="${ann.fontSize}" min="8" max="36"
-            oninput="updateAnnProp(${ann.id},'fontSize',parseFloat(this.value))">
-        </div>
-        <div class="color-row">
-          <label>Font Color</label>
+            oninput="updateAnnProp(${ann.id},'fontSize',parseFloat(this.value))"></div>
+        <div class="color-row"><label>Font Color</label>
           <input type="color" value="${ann.fontColor}"
-            oninput="updateAnnProp(${ann.id},'fontColor',this.value)">
-        </div>
+            oninput="updateAnnProp(${ann.id},'fontColor',this.value)"></div>
       </div>
       <div class="point-card-controls">
-        <div class="color-row">
-          <label>BG Color</label>
+        <div class="color-row"><label>BG Color</label>
           <input type="color" value="${ann.bgColor}"
-            oninput="updateAnnProp(${ann.id},'bgColor',this.value)">
-        </div>
-        <div class="color-row">
-          <label>Border</label>
+            oninput="updateAnnProp(${ann.id},'bgColor',this.value)"></div>
+        <div class="color-row"><label>Border</label>
           <input type="color" value="${ann.borderColor}"
-            oninput="updateAnnProp(${ann.id},'borderColor',this.value)">
-        </div>
+            oninput="updateAnnProp(${ann.id},'borderColor',this.value)"></div>
       </div>
       <div class="toggle-wrap">
         <span class="toggle-label">Show Border</span>
@@ -336,22 +355,19 @@ function buildAnnotationCard(ann) {
       <div class="point-card-header">
         <span class="point-card-label">→ Arrow #${ann.id}</span>
       </div>
-      <div class="field">
-        <label>Label (optional)</label>
-        <input type="text" value="${ann.label}"
-          oninput="updateAnnProp(${ann.id},'label',this.value)">
+      <div class="empty-hint" style="text-align:left; font-style:normal; font-size:0.69rem; color:var(--text-muted);">
+        Drag the ▲ handle to move the <strong>head</strong>, drag ● to move the <strong>tail</strong>.
       </div>
+      <div class="field"><label>Label (optional)</label>
+        <input type="text" value="${ann.label}"
+          oninput="updateAnnProp(${ann.id},'label',this.value)"></div>
       <div class="point-card-controls">
-        <div class="color-row">
-          <label>Color</label>
+        <div class="color-row"><label>Color</label>
           <input type="color" value="${ann.color}"
-            oninput="updateAnnProp(${ann.id},'color',this.value)">
-        </div>
-        <div class="field">
-          <label>Width</label>
+            oninput="updateAnnProp(${ann.id},'color',this.value)"></div>
+        <div class="field"><label>Width</label>
           <input type="number" value="${ann.width}" min="0.5" max="8" step="0.5"
-            oninput="updateAnnProp(${ann.id},'width',parseFloat(this.value))">
-        </div>
+            oninput="updateAnnProp(${ann.id},'width',parseFloat(this.value))"></div>
       </div>
       <button class="btn btn-red btn-sm" style="margin-top:6px;"
         onclick="removeAnnotation(${ann.id})">Remove</button>`;
