@@ -201,6 +201,13 @@ function setMode(mode) {
     if (typeof resetAllLabelOverrides === 'function') resetAllLabelOverrides();
   }
   STATE.mode = mode;
+  // Log scale default: OFF for fake, ON is applied per-compound in loadCompound
+  if (mode === 'fake') {
+    STATE.axes.logPressure = false;
+    const logEl = el('log-pressure');
+    if (logEl) logEl.checked = false;
+    updateLogScaleHint();
+  }
   el('btn-mode-real').classList.toggle('active', mode === 'real');
   el('btn-mode-fake').classList.toggle('active', mode === 'fake');
   el('section-real').style.display        = mode === 'real' ? 'flex' : 'none';
@@ -219,6 +226,10 @@ function loadCompound(key) {
   updateCompoundInfoCard();
   updateWaterAnomalyUI();
   if (typeof resetAllLabelOverrides === 'function') resetAllLabelOverrides();
+  // Default real compounds to log scale
+  STATE.axes.logPressure = true;
+  const logEl = el('log-pressure');
+  if (logEl) logEl.checked = true;
   autoScaleToCompound(STATE.compoundData);
   updateLogScaleHint();
   renderDiagram();
@@ -499,8 +510,9 @@ function renderDiagram() {
 
   ctx.clearRect(0, 0, BASE_W, BASE_H);
 
-  // Skip white background when exporting with transparency enabled
-  if (!STATE._exportTransparent) {
+  // Skip white fill when exporting transparent OR when the live toggle is on
+  const liveTransparent = val('export-transparent');
+  if (!STATE._exportTransparent && !liveTransparent) {
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, BASE_W, BASE_H);
   }
