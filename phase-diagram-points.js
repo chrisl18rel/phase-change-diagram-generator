@@ -158,6 +158,7 @@ function buildPointCard(pt) {
     </div>
     <button class="btn btn-red btn-sm" style="margin-top:4px;" onclick="removePoint(${pt.id})">Remove Point</button>`;
   list.appendChild(card);
+  if (typeof initColorSwatches === 'function') initColorSwatches();
 }
 
 function updatePointCardCoords(pt) {
