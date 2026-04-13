@@ -28,7 +28,8 @@ body {
   font-family: 'DM Sans', system-ui, sans-serif;
   background: var(--navy);
   color: var(--text);
-  min-height: 100vh;
+  height: 100vh;
+  overflow: hidden;   /* only the sidebar scrolls — never the page */
   display: flex;
   flex-direction: column;
   font-size: 13px;
@@ -135,22 +136,18 @@ body {
 }
 .color-swatch-btn-pd:hover { border-color: var(--gold); }
 
-/* ── Advanced HSB color picker popover ───────────────────────────────────── */
-.cp-popover {
+/* ── Advanced HSB color picker — exact from Solubility Curve Generator ────── */
+.color-popover {
   position: fixed; z-index: 9000;
-  background: #1a2535;
-  border: 1px solid #3a5275;
+  background: #1e2030;
+  border: 1px solid #3a3a5a;
   border-radius: 8px;
-  box-shadow: 0 12px 40px rgba(0,0,0,0.7);
-  width: 290px;
-  overflow: hidden;
-  user-select: none;
+  box-shadow: 0 10px 40px rgba(0,0,0,0.7);
+  width: 300px; padding: 0;
+  overflow: hidden; user-select: none;
 }
-.cp-sb-canvas { display: block; width: 100%; height: 150px; cursor: crosshair; }
-.cp-strips {
-  display: flex; gap: 8px;
-  padding: 8px 10px 4px;
-}
+.cp-sb-canvas { display: block; width: 100%; height: 160px; cursor: crosshair; }
+.cp-strips { display: flex; gap: 8px; padding: 8px 10px 4px; }
 .cp-strip-col { flex: 1; display: flex; flex-direction: column; gap: 5px; }
 .cp-hue-bar {
   width: 100%; height: 14px; border-radius: 7px; cursor: pointer; position: relative;
@@ -163,35 +160,30 @@ body {
   pointer-events: none;
 }
 .cp-preview-col { width: 34px; display: flex; flex-direction: column; gap: 5px; padding-top: 2px; }
-.cp-preview-swatch {
-  width: 34px; height: 34px; border-radius: 5px;
-  border: 1px solid rgba(255,255,255,0.15);
-}
+.cp-preview-swatch { width: 34px; height: 34px; border-radius: 5px; border: 1px solid rgba(255,255,255,0.15); flex-shrink: 0; }
 .cp-inputs { display: flex; gap: 5px; padding: 4px 10px 8px; }
-.cp-input-group {
-  flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px;
-}
+.cp-input-group { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 2px; }
 .cp-input-group input[type="number"] {
-  width: 100%; background: #0c1a28; border: 1px solid #3a5275; border-radius: 4px;
-  color: var(--text); font-size: 11px; text-align: center; padding: 4px 2px; outline: none;
+  width: 100%; background: #0d1117; border: 1px solid #3a3a5a; border-radius: 4px;
+  color: #e0e0e0; font-size: 11px; text-align: center; padding: 4px 2px; outline: none;
 }
-.cp-input-group input[type="number"]:focus { border-color: var(--gold); }
+.cp-input-group input[type="number"]:focus { border-color: #4a90e2; }
 .cp-input-group input[type="number"]::-webkit-inner-spin-button { display: none; }
-.cp-input-label { font-size: 9px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+.cp-input-label { font-size: 9px; color: #6a6a8a; text-transform: uppercase; letter-spacing: 0.5px; }
 .cp-hex-group { flex: 1.4; }
 .cp-hex-group input[type="text"] {
-  width: 100%; background: #0c1a28; border: 1px solid #3a5275; border-radius: 4px;
-  color: var(--text); font-size: 11px; font-family: 'DM Mono', monospace;
-  text-align: center; padding: 4px 2px; outline: none;
+  width: 100%; background: #0d1117; border: 1px solid #3a3a5a; border-radius: 4px;
+  color: #e0e0e0; font-size: 11px; font-family: 'Courier New', monospace; text-align: center;
+  padding: 4px 2px; outline: none;
 }
-.cp-hex-group input[type="text"]:focus { border-color: var(--gold); }
+.cp-hex-group input[type="text"]:focus { border-color: #4a90e2; }
 .cp-mode-row { display: flex; justify-content: center; gap: 4px; padding: 0 10px 6px; }
 .cp-mode-btn {
   flex: 1; font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px;
-  background: none; border: 1px solid #3a5275; color: var(--text-muted);
+  background: none; border: 1px solid #3a3a5a; color: #6a6a8a;
   border-radius: 3px; padding: 3px 2px; cursor: pointer; transition: all 0.1s;
 }
-.cp-mode-btn.active { background: #3a5275; color: var(--text); border-color: #3a5275; }
+.cp-mode-btn.active { background: #3a3a5a; color: #e0e0e0; border-color: #5a5a7a; }
 
 /* Accordion panels */
 .panel { border-bottom: 1px solid var(--border-sub); }
