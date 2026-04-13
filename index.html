@@ -17,7 +17,7 @@
     <h1>Phase Diagram Generator</h1>
     <span class="hint">— Click the graph to plot points &nbsp;·&nbsp; Drag points to move them</span>
     <button class="btn-clear-all" onclick="clearAll()" title="Reset everything to a clean state">⟳ Clear All</button>
-    <span class="version-badge">v2.3</span>
+    <span class="version-badge">v2.5</span>
   </header>
 
   <div class="app-body">
@@ -637,7 +637,7 @@
           <div class="toggle-wrap">
             <span class="toggle-label">Transparent Background</span>
             <label class="toggle-switch">
-              <input type="checkbox" id="export-transparent">
+              <input type="checkbox" id="export-transparent" onchange="renderDiagram()">
               <span class="toggle-slider"></span>
             </label>
           </div>
