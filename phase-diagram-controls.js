@@ -42,6 +42,15 @@ const STATE = {
   annotations: [],
   fakeLibrary: [],
 
+  // Label drag overrides — persisted across renders
+  labelOverrides:     {},   // { 'triple:label': {dx,dy}, 'pt:5:pair': {dx,dy}, … }
+  regionLabelOffsets: {},   // { 'solid': {x,y}, 'gas': {x,y}, … } absolute canvas
+
+  // Computed each render frame — NOT persisted
+  _regionLabelBoxes: {},
+  _markerLabelBoxes: {},
+  _pointLabelBoxes:  {},
+
   drag: { active: false, type: null, id: null, ox: 0, oy: 0, pendingClick: null, endpoint: null },
 
   canvas: { w: 800, h: 600, margin: { top: 60, right: 50, bottom: 72, left: 88 } }
@@ -189,6 +198,7 @@ function setMode(mode) {
     if (annList) annList.innerHTML = '';
     if (ptHint)  ptHint.style.display  = '';
     if (annHint) annHint.style.display = '';
+    if (typeof resetAllLabelOverrides === 'function') resetAllLabelOverrides();
   }
   STATE.mode = mode;
   el('btn-mode-real').classList.toggle('active', mode === 'real');
@@ -208,7 +218,8 @@ function loadCompound(key) {
   STATE.compoundData = getCompoundInDisplayUnits(key, STATE.tempUnit, STATE.pressUnit);
   updateCompoundInfoCard();
   updateWaterAnomalyUI();
-  autoScaleToCompound(STATE.compoundData);   // auto-scale on every load
+  if (typeof resetAllLabelOverrides === 'function') resetAllLabelOverrides();
+  autoScaleToCompound(STATE.compoundData);
   renderDiagram();
 }
 
@@ -383,6 +394,8 @@ function bindCanvasEvents() {
 
   canvas.addEventListener('mousedown', e => {
     const pos = getCanvasPos(canvas, e);
+    // Label drag has highest priority (labels sit on top of everything)
+    if (typeof startLabelDrag === 'function' && startLabelDrag(pos)) return;
     if (STATE.mode === 'fake' && typeof startFakeDrag === 'function' && startFakeDrag(pos)) return;
     if (typeof startPointDrag === 'function' && startPointDrag(pos)) return;
     if (typeof startAnnotationDrag === 'function' && startAnnotationDrag(pos)) return;
@@ -423,10 +436,14 @@ function bindCanvasEvents() {
 
 function updateCursorStyle(canvas, pos) {
   if (!inPlotArea(pos.x, pos.y)) { canvas.style.cursor = 'default'; return; }
-  // Check fake drag handles + arrow endpoints + user points
+  // Labels (highest priority for cursor)
+  if (typeof findNearLabel === 'function' && findNearLabel(pos)) {
+    canvas.style.cursor = 'grab'; return;
+  }
+  // Fake drag handles + arrow endpoints + user points
   const nearHandle = (typeof findNearDraggable === 'function') ? findNearDraggable(pos) : false;
   if (nearHandle) { canvas.style.cursor = 'grab'; return; }
-  // Check text box hover — _pointInTextBox lives in annotations.js (global scope)
+  // Text boxes
   const overTextBox = STATE.annotations.some(ann =>
     ann.type === 'text' &&
     typeof _pointInTextBox === 'function' &&
