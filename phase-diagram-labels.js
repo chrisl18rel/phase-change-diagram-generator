@@ -254,8 +254,9 @@ function _attachOptionsHtml(selectedVal) {
   if (STATE.points.length) {
     html += `<optgroup label="User Points">`;
     STATE.points.forEach((pt, i) => {
-      const v = `point:${pt.id}`;
-      html += `<option value="${v}" ${sel === v ? 'selected' : ''}>P${i+1} (${formatVal(pt.T)}, ${formatVal(pt.P)})</option>`;
+      const v    = `point:${pt.id}`;
+      const name = (pt.label && pt.label.trim()) ? pt.label.trim() : `P${i + 1}`;
+      html += `<option value="${v}" ${sel === v ? 'selected' : ''}>${name} (${formatVal(pt.T)}, ${formatVal(pt.P)})</option>`;
     });
     html += `</optgroup>`;
   }
