@@ -195,6 +195,8 @@ function closeColorPicker(){
 
 // ── Upgrade all native color inputs to swatch buttons ─────────────────────
 // Safe to call multiple times — skips already-processed inputs.
+// Fires the input's own oninput / onchange handler so that state-update
+// functions like updatePointProp() and updateAnnProp() still run correctly.
 function initColorSwatches() {
   document.querySelectorAll('input[type="color"]:not([data-swatch-done])').forEach(input => {
     input.dataset.swatchDone = '1';
@@ -210,7 +212,14 @@ function initColorSwatches() {
       openColorPicker(btn, input.value || '#222222', col => {
         btn.style.background = col;
         input.value = col;
-        if (typeof renderDiagram === 'function') renderDiagram();
+        // Fire the element's own handler so updatePointProp / updateAnnProp run
+        if (typeof input.oninput === 'function') {
+          input.oninput.call(input, { target: input });
+        } else if (typeof input.onchange === 'function') {
+          input.onchange.call(input, { target: input });
+        } else if (typeof renderDiagram === 'function') {
+          renderDiagram();
+        }
       });
     });
   });
