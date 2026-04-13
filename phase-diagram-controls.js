@@ -494,9 +494,36 @@ function renderDiagram() {
   if (typeof renderAnnotations === 'function') renderAnnotations(ctx, STATE._exporting);
 }
 
+// ── Clear All ──────────────────────────────────────────────────────────────
+function clearAll() {
+  STATE.compoundKey  = null;
+  STATE.compoundData = null;
+  STATE.fakeCompound = null;
+  STATE.points       = [];
+  STATE.annotations  = [];
+  STATE.fakeLibrary  = [];
+  STATE.mode         = 'real'; // reset to real so setMode fires transitions
+  if (typeof resetAllLabelOverrides === 'function') resetAllLabelOverrides();
+  // Clear sidebar lists
+  const ptList  = el('point-list');
+  const annList = el('annotation-list');
+  if (ptList)  ptList.innerHTML  = '';
+  if (annList) annList.innerHTML = '';
+  el('points-hint')?.style && (el('points-hint').style.display   = '');
+  el('annotations-hint')?.style && (el('annotations-hint').style.display = '');
+  // Reset compound selector
+  const sel = el('compound-select');
+  if (sel) sel.value = '';
+  if (typeof renderLibraryUI === 'function') renderLibraryUI();
+  setMode('real');
+  renderDiagram();
+  if (typeof showToast === 'function') showToast('Canvas cleared', '');
+}
+
 // ── Init ───────────────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
   if (typeof loadFakeLibrary === 'function') loadFakeLibrary();
+  if (typeof initColorSwatches === 'function') initColorSwatches();
   bindCanvasEvents();
   updateAxisLabels();
   renderDiagram();
