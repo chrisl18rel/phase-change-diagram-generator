@@ -147,31 +147,53 @@ function _drawRealRegionLabels(ctx, m, pw, ph, sv, sl, lv, tp, cp) {
   const plotL = m.left, plotR = m.left + pw;
   const plotT = m.top,  plotB = m.top + ph;
 
+  STATE._regionLabelBoxes = {};
+  const { labelSize, labelColor } = STATE.regions;
+
+  const drawLabel = (key, defaultX, defaultY, text) => {
+    ctx.save();
+    ctx.font = `bold ${labelSize}px DM Sans, sans-serif`;
+    const tw = ctx.measureText(text).width;
+    const th = labelSize;
+
+    // Apply user drag offset if present, else use computed default
+    const ov = STATE.regionLabelOffsets?.[key];
+    // Default uses center-anchored coords; ov stores absolute top-left
+    const cx = ov ? ov.x + tw / 2 : defaultX;
+    const cy = ov ? ov.y + th / 2 : defaultY;
+
+    // Clamp centre within plot area
+    const fx = Math.max(plotL + tw/2 + 2, Math.min(plotR - tw/2 - 2, cx));
+    const fy = Math.max(plotT + th/2 + 2, Math.min(plotB - th/2 - 2, cy));
+
+    ctx.fillStyle    = labelColor;
+    ctx.textAlign    = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.globalAlpha  = 0.75;
+    ctx.fillText(text, fx, fy);
+    ctx.restore();
+
+    // Store top-left bbox for hit-testing
+    STATE._regionLabelBoxes[key] = { x: fx - tw/2, y: fy - th/2, w: tw, h: th };
+  };
+
   if (STATE.regions.solid.showLabel && tp) {
-    // Place SOLID label in the middle of the solid region
-    // For water (negative slope), solid is to the left of SL
-    const slMidX = sl.length ? sl[Math.floor(sl.length / 2)].x : tp.x;
-    const solidLabelX = (plotL + Math.min(slMidX, tp.x)) / 2;
-    const solidLabelY = plotT + ph * 0.3;
-    drawRegionLabel(ctx, 'SOLID', solidLabelX, solidLabelY);
+    const slMidX    = sl.length ? sl[Math.floor(sl.length / 2)].x : tp.x;
+    const solidX    = (plotL + Math.min(slMidX, tp.x)) / 2;
+    drawLabel('solid', solidX, plotT + ph * 0.3, 'SOLID');
   }
 
   if (STATE.regions.liquid.showLabel && tp && cp) {
-    drawRegionLabel(ctx, 'LIQUID', (tp.x + cp.x) / 2, plotT + ph * 0.25);
+    drawLabel('liquid', (tp.x + cp.x) / 2, plotT + ph * 0.25, 'LIQUID');
   }
 
   if (STATE.regions.gas.showLabel && tp) {
-    // GAS label: position below and right of the SV+LV junction area
-    // Use a point well into the gas region
-    const gasLabelX = tp.x + (plotR - tp.x) * 0.45;
-    const gasLabelY = tp.y + (plotB - tp.y) * 0.55;
-    // Clamp within plot area
-    const gx = Math.min(plotR - 40, Math.max(plotL + 40, gasLabelX));
-    const gy = Math.min(plotB - 20, Math.max(plotT + 20, gasLabelY));
-    drawRegionLabel(ctx, 'GAS', gx, gy);
+    const gasX = tp.x + (plotR - tp.x) * 0.45;
+    const gasY = tp.y + (plotB - tp.y) * 0.55;
+    drawLabel('gas', gasX, gasY, 'GAS');
   }
 
   if (STATE.regions.super.showLabel && cp) {
-    drawRegionLabel(ctx, 'SUPERCRITICAL', (cp.x + plotR) / 2, plotT + ph * 0.12);
+    drawLabel('super', (cp.x + plotR) / 2, plotT + ph * 0.12, 'SUPERCRITICAL');
   }
 }
