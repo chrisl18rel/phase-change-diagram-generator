@@ -59,8 +59,33 @@ function _lhit(pos, b) {
 // ── Move handlers (called from continueDrag in fake.js) ────────────────────
 function moveRegionLabel(key, pos) {
   STATE.regionLabelOffsets = STATE.regionLabelOffsets || {};
-  // Store absolute canvas top-left of where the label should render
-  STATE.regionLabelOffsets[key] = { x: pos.x - STATE.drag.ox, y: pos.y - STATE.drag.oy };
+
+  const b      = STATE._regionLabelBoxes?.[key];
+  const bounds = STATE._regionBounds?.[key];
+  const tw     = b ? b.w : 50;
+  const th     = b ? b.h : 16;
+
+  // Center position after drag, accounting for where user grabbed the label
+  let cx = (pos.x - STATE.drag.ox) + tw / 2;
+  let cy = (pos.y - STATE.drag.oy) + th / 2;
+
+  // Hard-clamp to region bounds so label can never leave its region
+  if (bounds) {
+    cx = Math.max(bounds.xMin + tw / 2, Math.min(bounds.xMax - tw / 2, cx));
+    cy = Math.max(bounds.yMin + th / 2, Math.min(bounds.yMax - th / 2, cy));
+  }
+
+  STATE.regionLabelOffsets[key] = { x: cx - tw / 2, y: cy - th / 2 };
+}
+
+// ── Hit-test a rotated rectangle bbox (used for arrow labels) ─────────────
+function _hitRotatedRect(pos, bbox) {
+  if (!bbox) return false;
+  const dx = pos.x - bbox.cx, dy = pos.y - bbox.cy;
+  const cosA = Math.cos(-bbox.angle), sinA = Math.sin(-bbox.angle);
+  const lx   =  dx * cosA - dy * sinA;
+  const ly   =  dx * sinA + dy * cosA;
+  return Math.abs(lx) <= bbox.w / 2 + 4 && Math.abs(ly) <= bbox.h / 2 + 4;
 }
 
 function moveMarkerLabel(bkey, pos) {
@@ -99,7 +124,12 @@ function findNearLabel(pos) {
     ...Object.values(STATE._markerLabelBoxes || {}),
     ...Object.values(STATE._pointLabelBoxes  || {})
   ];
-  return allBoxes.some(b => b && _lhit(pos, b));
+  if (allBoxes.some(b => b && _lhit(pos, b))) return true;
+  // Arrow labels use rotated bboxes
+  return STATE.annotations.some(ann =>
+    ann.type === 'arrow' && ann.label && ann._labelBbox &&
+    typeof _hitRotatedRect === 'function' && _hitRotatedRect(pos, ann._labelBbox)
+  );
 }
 
 // ── Reset all override state ───────────────────────────────────────────────
