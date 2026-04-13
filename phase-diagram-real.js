@@ -147,85 +147,101 @@ function _drawRealRegionLabels(ctx, m, pw, ph, sv, sl, lv, tp, cp) {
   const src      = COMPOUND_DATA[STATE.compoundKey];
   const negSlope = src?.negativeSlope;
 
-  // ── Compute safe zone for EVERY region regardless of showLabel ────────────
-  // This ensures bounds are always ready for clamping during drag.
+  // ── Compute GENEROUS safe zones — always, for every region ───────────────
+  // The label should be freely movable anywhere within its region.
+  // Use the natural canvas coordinates of tp and cp as the primary dividers.
+  // Keep margins tiny (2px) so the user has maximum freedom.
+
   if (tp) {
-    const slLeftX = sl.length ? Math.min(...sl.map(p => p.x)) : tp.x;
+    // SOLID: everything to the LEFT of the SL curve.
+    // tp.x is where the SL curve begins (triple point), so solid ends there.
+    const solidXMax = tp.x - 2;
+    STATE._regionBounds.solid = {
+      xMin: plotL + 2,
+      xMax: Math.max(plotL + 10, solidXMax),
+      yMin: plotT + 2,
+      yMax: plotB - 2
+    };
 
-    // SOLID: everything left of the SL curve
-    STATE._regionBounds.solid = negSlope
-      ? { xMin: plotL + 4, xMax: Math.min(tp.x - 4, tp.x + (tp.x - plotL) * 0.35),
-          yMin: plotT + 4,  yMax: plotB - 4 }
-      : { xMin: plotL + 4, xMax: Math.max(plotL + 20, slLeftX - 8),
-          yMin: plotT + 4,  yMax: plotB - 4 };
-
-    // GAS: below the triple point (canvas y > tp.y means lower pressure = gas side)
+    // GAS: below the LV and SV curves, i.e., below the triple-point pressure.
+    // In canvas coords: tp.y is HIGH (larger number = lower pressure = lower on screen).
+    // Gas region exists for canvas y > tp.y.
+    // The x range for gas covers the full width (gas can be far left at very low P).
     STATE._regionBounds.gas = {
-      xMin: tp.x + (plotR - tp.x) * 0.05,
-      xMax: plotR - 4,
-      yMin: tp.y + (plotB - tp.y) * 0.05,  // slightly below tp
-      yMax: plotB - 4
-    };
-  }
-  if (tp && cp) {
-    // LIQUID: between SL and LV curves, horizontally tp→cp, vertically plotT→tp
-    // Note: in canvas coords, LOWER y = HIGHER on screen = HIGHER pressure.
-    // tp.y > cp.y  (triple point is lower-pressure → lower on screen → higher canvas y)
-    // Liquid sits ABOVE the LV curve, so y < tp.y.
-    STATE._regionBounds.liquid = {
-      xMin: Math.min(tp.x + 5, cp.x - 20),
-      xMax: Math.max(cp.x - 5, tp.x + 20),
-      yMin: plotT + 4,
-      yMax: Math.max(tp.y - 8, plotT + 20)  // never collapses to nothing
-    };
-  }
-  if (cp) {
-    // SUPERCRITICAL: upper-right quadrant beyond the critical point
-    STATE._regionBounds.super = {
-      xMin: Math.min(cp.x + 8, plotR - 20),
-      xMax: plotR - 4,
-      yMin: plotT + 4,
-      yMax: Math.max(cp.y - 4, plotT + 20)  // cp.y is small (high pressure = high on screen)
+      xMin: plotL + 2,
+      xMax: plotR - 2,
+      yMin: tp.y + 2,    // strictly below triple point pressure
+      yMax: plotB - 2
     };
   }
 
-  // ── Draw a label — clamp to region, auto-clear stale overrides ────────────
+  if (tp && cp) {
+    // LIQUID: between the SL curve (left) and LV curve (right), above triple point.
+    // x: tp.x → cp.x  |  y: plotT → tp.y  (canvas y < tp.y means higher pressure)
+    STATE._regionBounds.liquid = {
+      xMin: tp.x + 2,
+      xMax: Math.max(tp.x + 10, cp.x - 2),
+      yMin: plotT + 2,
+      yMax: Math.max(plotT + 10, tp.y - 2)  // tp.y is the floor of liquid
+    };
+  }
+
+  if (cp) {
+    // SUPERCRITICAL: upper-right corner beyond the critical point.
+    // cp.y is relatively small (high pressure = high on canvas = small y value).
+    STATE._regionBounds.super = {
+      xMin: Math.min(cp.x + 2, plotR - 10),
+      xMax: plotR - 2,
+      yMin: plotT + 2,
+      yMax: Math.max(plotT + 10, cp.y - 2)
+    };
+  }
+
+  // ── Draw a label — apply stored override, clamp, auto-clear grossly stale ─
   const drawLabel = (key, defaultX, defaultY, text) => {
     const bounds = STATE._regionBounds[key];
-    if (!bounds) return;
-
-    // Validate bounds have positive area; fallback to plot centre if degenerate
-    const bw = bounds.xMax - bounds.xMin;
-    const bh = bounds.yMax - bounds.yMin;
-    if (bw < 10 || bh < 10) return;
 
     ctx.font = `bold ${labelSize}px DM Sans, sans-serif`;
     const tw = ctx.measureText(text).width;
     const th = labelSize;
 
-    const ov = STATE.regionLabelOffsets?.[key];
-    let cx, cy;
+    let cx = defaultX;
+    let cy = defaultY;
 
+    const ov = STATE.regionLabelOffsets?.[key];
     if (ov) {
-      cx = ov.x + tw / 2;
-      cy = ov.y + th / 2;
-      // Clear stale overrides that have drifted well outside the current region
-      const margin = 60;
-      const stale  = cx < bounds.xMin - margin || cx > bounds.xMax + margin ||
-                     cy < bounds.yMin - margin || cy > bounds.yMax + margin;
-      if (stale) {
-        delete STATE.regionLabelOffsets[key];
-        cx = defaultX;
-        cy = defaultY;
+      const desiredCx = ov.x + tw / 2;
+      const desiredCy = ov.y + th / 2;
+
+      // Clear overrides that have drifted BADLY outside the current region
+      // (e.g. user moved fake compound dramatically). Threshold = 25% of plot.
+      if (bounds) {
+        const farMargin = Math.max(pw, ph) * 0.25;
+        const stale = desiredCx < bounds.xMin - farMargin ||
+                      desiredCx > bounds.xMax + farMargin ||
+                      desiredCy < bounds.yMin - farMargin ||
+                      desiredCy > bounds.yMax + farMargin;
+        if (stale) {
+          delete STATE.regionLabelOffsets[key];
+        } else {
+          cx = desiredCx;
+          cy = desiredCy;
+        }
+      } else {
+        cx = desiredCx;
+        cy = desiredCy;
       }
-    } else {
-      cx = defaultX;
-      cy = defaultY;
     }
 
-    // Hard-clamp to region bounds
-    cx = Math.max(bounds.xMin + tw / 2, Math.min(bounds.xMax - tw / 2, cx));
-    cy = Math.max(bounds.yMin + th / 2, Math.min(bounds.yMax - th / 2, cy));
+    // Clamp to region bounds when they exist and have positive area
+    if (bounds && bounds.xMax > bounds.xMin && bounds.yMax > bounds.yMin) {
+      // Only clamp the center — allow text that's slightly bigger than bounds to still show
+      cx = Math.max(bounds.xMin + tw / 2, Math.min(bounds.xMax - tw / 2, cx));
+      cy = Math.max(bounds.yMin + th / 2, Math.min(bounds.yMax - th / 2, cy));
+    }
+    // Fallback clamp: always stay within the full plot area
+    cx = Math.max(plotL + tw / 2, Math.min(plotR - tw / 2, cx));
+    cy = Math.max(plotT + th / 2, Math.min(plotB - th / 2, cy));
 
     ctx.save();
     ctx.fillStyle    = labelColor;
