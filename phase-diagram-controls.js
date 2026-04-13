@@ -213,13 +213,14 @@ function setMode(mode) {
 
 // ── Compound loading ───────────────────────────────────────────────────────
 function loadCompound(key) {
-  if (!key) { STATE.compoundKey = null; STATE.compoundData = null; renderDiagram(); return; }
+  if (!key) { STATE.compoundKey = null; STATE.compoundData = null; updateLogScaleHint(); renderDiagram(); return; }
   STATE.compoundKey = key;
   STATE.compoundData = getCompoundInDisplayUnits(key, STATE.tempUnit, STATE.pressUnit);
   updateCompoundInfoCard();
   updateWaterAnomalyUI();
   if (typeof resetAllLabelOverrides === 'function') resetAllLabelOverrides();
   autoScaleToCompound(STATE.compoundData);
+  updateLogScaleHint();
   renderDiagram();
 }
 
@@ -346,7 +347,44 @@ function onLogScaleChange() {
   const cd = STATE.mode === 'fake' ? STATE.fakeCompound : STATE.compoundData;
   if (cd) autoScaleToCompound(cd);
   syncStateFromDOM();
+  updateLogScaleHint();
   renderDiagram();
+}
+
+// ── Log scale hint ─────────────────────────────────────────────────────────
+// Shows a gold advisory when a real compound is loaded, log scale is OFF,
+// and the compound's pressure range spans more than 3 orders of magnitude.
+function updateLogScaleHint() {
+  const hintEl    = el('log-scale-hint');
+  const decadesEl = el('log-scale-hint-decades');
+  if (!hintEl) return;
+
+  const isLogOn = val('log-pressure');
+  const cd      = STATE.compoundData;
+
+  if (isLogOn || !cd || STATE.mode !== 'real') {
+    hintEl.style.display = 'none';
+    return;
+  }
+
+  // Collect all pressures from SV curve + critical point to find the range
+  const pressures = [];
+  if (cd.solidVaporCurve?.length)  cd.solidVaporCurve.forEach(pt  => pressures.push(pt.P));
+  if (cd.liquidVaporCurve?.length) cd.liquidVaporCurve.forEach(pt  => pressures.push(pt.P));
+  if (cd.criticalPoint?.P)         pressures.push(cd.criticalPoint.P);
+
+  if (pressures.length < 2) { hintEl.style.display = 'none'; return; }
+
+  const pMin    = Math.min(...pressures.filter(p => p > 0));
+  const pMax    = Math.max(...pressures);
+  const decades = Math.log10(pMax / pMin);
+
+  if (decades >= 3) {
+    if (decadesEl) decadesEl.textContent = Math.round(decades);
+    hintEl.style.display = 'block';
+  } else {
+    hintEl.style.display = 'none';
+  }
 }
 
 function autoScaleAxes() {
