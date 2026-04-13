@@ -322,7 +322,24 @@ function _moveFakeKeyPoint(type, data) {
       };
     }
     fc._handleLV = { T: data.T, P: data.P };
-    _recalcFakeStandardPoints(fc);
+    // Only NBP changes when the critical point moves — NMP depends solely on the
+    // triple point (which hasn't moved), so we must NOT recalculate it here or
+    // the floating-point comparison in _recalcFakeStandardPoints can clear it.
+    const oneAtm = UNIT_CONVERSIONS.pressure.fromPa[STATE.pressUnit]?.(101325);
+    if (oneAtm && fc.criticalPoint.P >= oneAtm && tp.P <= oneAtm) {
+      let nbpT = null;
+      for (let i = 0; i < lv.length - 1; i++) {
+        const p1 = lv[i].P, p2 = lv[i + 1].P;
+        if ((p1 <= oneAtm && p2 >= oneAtm) || (p1 >= oneAtm && p2 <= oneAtm)) {
+          const frac = (oneAtm - p1) / (p2 - p1);
+          nbpT = lv[i].T + frac * (lv[i + 1].T - lv[i].T);
+          break;
+        }
+      }
+      fc.normalBoilingPoint = nbpT != null ? { T: nbpT, P: oneAtm } : null;
+    } else if (oneAtm) {
+      fc.normalBoilingPoint = null;
+    }
   }
 }
 
