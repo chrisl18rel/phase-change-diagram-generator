@@ -173,6 +173,8 @@ function updatePointProp(id, prop, value) {
   if (prop === 'label') {
     const lbl = document.getElementById(`pt-lbl-${id}`);
     if (lbl) lbl.textContent = value;
+    // Keep arrow attachment dropdowns in sync with the new label
+    if (typeof _refreshAttachDropdowns === 'function') _refreshAttachDropdowns();
   }
   renderDiagram();
 }
