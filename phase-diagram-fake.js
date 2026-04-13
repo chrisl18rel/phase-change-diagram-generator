@@ -6,13 +6,14 @@ const DRAG_RADIUS = 10; // px hit radius for drag handles
 
 // ── Library ────────────────────────────────────────────────────────────────
 function loadFakeLibrary() {
-  try { STATE.fakeLibrary = JSON.parse(localStorage.getItem(FAKE_LIBRARY_KEY)) || []; }
-  catch { STATE.fakeLibrary = []; }
+  // No localStorage persistence — library is session-only so page refresh
+  // gives a completely clean state (per user requirement).
+  STATE.fakeLibrary = [];
   renderLibraryUI();
 }
 
 function saveFakeLibraryToStorage() {
-  localStorage.setItem(FAKE_LIBRARY_KEY, JSON.stringify(STATE.fakeLibrary));
+  // Intentionally a no-op: storage disabled so refresh always starts fresh.
 }
 
 function generateFakeCompound() {
