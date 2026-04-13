@@ -181,7 +181,6 @@ function _renderArrowAnnotation(ctx, ann, isExport) {
   ctx.lineJoin    = 'round';
   ctx.lineCap     = 'round';
 
-  // Line: tail → head
   ctx.beginPath();
   ctx.moveTo(tail.x, tail.y);
   ctx.lineTo(head.x, head.y);
@@ -197,15 +196,37 @@ function _renderArrowAnnotation(ctx, ann, isExport) {
   ctx.lineTo(head.x - hLen * Math.cos(angle + 0.38), head.y - hLen * Math.sin(angle + 0.38));
   ctx.stroke();
 
+  // ── Label along the arrow line ──────────────────────────────────────────
   if (ann.label) {
-    ctx.fillStyle    = ann.color;
-    ctx.font         = `${11 + ann.width}px DM Sans, sans-serif`;
+    const midX  = (head.x + tail.x) / 2;
+    const midY  = (head.y + tail.y) / 2;
+    const dx    = ann.labelDx  || 0;
+    const dy    = ann.labelDy  != null ? ann.labelDy : -14;
+    const cosA  = Math.cos(angle), sinA = Math.sin(angle);
+    const lx    = midX + cosA * dx - sinA * dy;
+    const ly    = midY + sinA * dx + cosA * dy;
+    const extra = ((ann.labelExtraAngle || 0) * Math.PI / 180);
+    const totalAngle = angle + extra;
+    const fs    = ann.labelFontSize || 11;
+
+    ctx.font         = `${fs}px DM Sans, sans-serif`;
+    const tw         = ctx.measureText(ann.label).width;
+    ctx.save();
+    ctx.translate(lx, ly);
+    ctx.rotate(totalAngle);
+    ctx.fillStyle    = ann.labelColor || ann.color;
     ctx.textAlign    = 'center';
-    ctx.textBaseline = 'bottom';
-    ctx.fillText(ann.label, (head.x + tail.x) / 2, Math.min(head.y, tail.y) - 4);
+    ctx.textBaseline = 'middle';
+    ctx.fillText(ann.label, 0, 0);
+    ctx.restore();
+
+    // Store rotated bbox for hit-testing and drag
+    ann._labelBbox = { cx: lx, cy: ly, angle: totalAngle, w: tw + 6, h: fs + 6 };
+  } else {
+    ann._labelBbox = null;
   }
 
-  // Drag handles at both ends (hidden in export)
+  // Drag handles (hidden during export)
   if (!isExport) {
     [
       { pt: head, attached: ann.attachHead != null },
@@ -213,14 +234,10 @@ function _renderArrowAnnotation(ctx, ann, isExport) {
     ].forEach(h => {
       ctx.beginPath();
       ctx.arc(h.pt.x, h.pt.y, ANN_HANDLE_R, 0, Math.PI * 2);
-      // Gold fill = attached to a text box; default = neutral
-      ctx.fillStyle   = h.attached
-        ? hexToRgba('#c9a03e', 0.30)
-        : hexToRgba(ann.color, 0.18);
+      ctx.fillStyle   = h.attached ? hexToRgba('#c9a03e', 0.30) : hexToRgba(ann.color, 0.18);
       ctx.strokeStyle = h.attached ? '#c9a03e' : ann.color;
       ctx.lineWidth   = h.attached ? 2 : 1.5;
-      ctx.fill();
-      ctx.stroke();
+      ctx.fill(); ctx.stroke();
     });
   }
   ctx.restore();
@@ -247,6 +264,18 @@ function startAnnotationDrag(pos) {
     const ann = STATE.annotations[i];
 
     if (ann.type === 'arrow') {
+      // Arrow LABEL drag — check before head/tail handles
+      if (ann.label && ann._labelBbox &&
+          typeof _hitRotatedRect === 'function' && _hitRotatedRect(pos, ann._labelBbox)) {
+        STATE.drag.active   = true;
+        STATE.drag.type     = 'annotation';
+        STATE.drag.id       = ann.id;
+        STATE.drag.endpoint = 'label';
+        STATE.drag.ox       = pos.x - ann._labelBbox.cx;
+        STATE.drag.oy       = pos.y - ann._labelBbox.cy;
+        return true;
+      }
+
       // Use render-time resolved positions so handles appear where they're drawn
       const headPt = (typeof _getArrowEndpoint === 'function') ? _getArrowEndpoint(ann, 'head') : { T: ann.T,  P: ann.P  };
       const tailPt = (typeof _getArrowEndpoint === 'function') ? _getArrowEndpoint(ann, 'tail') : { T: ann.T2, P: ann.P2 };
@@ -277,6 +306,33 @@ function startAnnotationDrag(pos) {
     }
   }
   return false;
+}
+
+// Moves an arrow label by dragging. Uses canvas coords directly so the
+// label position (stored as arrow-local dx/dy from midpoint) is stable
+// when the arrow itself moves.
+function moveArrowLabel(annId, canvasPos) {
+  const ann = STATE.annotations.find(a => Number(a.id) === Number(annId));
+  if (!ann || ann.type !== 'arrow') return;
+
+  const headPt = _getArrowEndpoint(ann, 'head');
+  const tailPt = _getArrowEndpoint(ann, 'tail');
+  const head   = dataToCanvas(headPt.T, headPt.P);
+  const tail   = dataToCanvas(tailPt.T, tailPt.P);
+  const midX   = (head.x + tail.x) / 2;
+  const midY   = (head.y + tail.y) / 2;
+  const angle  = Math.atan2(head.y - tail.y, head.x - tail.x);
+
+  // Desired label centre in canvas coords
+  const desiredX  = canvasPos.x - STATE.drag.ox;
+  const desiredY  = canvasPos.y - STATE.drag.oy;
+  const dxCanvas  = desiredX - midX;
+  const dyCanvas  = desiredY - midY;
+
+  // Inverse-rotate into arrow-local frame (along arrow, perpendicular to arrow)
+  const cosA   = Math.cos(angle), sinA = Math.sin(angle);
+  ann.labelDx  =  dxCanvas * cosA + dyCanvas * sinA;
+  ann.labelDy  = -dxCanvas * sinA + dyCanvas * cosA;
 }
 
 function moveAnnotation(id, data) {
@@ -383,25 +439,37 @@ function buildAnnotationCard(ann) {
     // Arrow card — attachment dropdowns include markers, user points, and text boxes
     const hOpts = (typeof _attachOptionsHtml === 'function') ? _attachOptionsHtml(ann.attachHead) : '<option value="">— None —</option>';
     const tOpts = (typeof _attachOptionsHtml === 'function') ? _attachOptionsHtml(ann.attachTail) : '<option value="">— None —</option>';
+    const lColor = ann.labelColor || ann.color || '#333333';
     card.innerHTML = `
       <div class="point-card-header">
         <span class="point-card-label">→ Arrow #${ann.id}</span>
       </div>
       <div class="empty-hint" style="text-align:left;font-style:normal;font-size:0.69rem;color:var(--text-muted);">
         Drag <strong>▲ head</strong> or <strong>● tail</strong> handles to reposition.
-        Attach to a marker, point, or text box — the arrow will track it automatically.
+        Drag the label text on the canvas to move it along the arrow.
       </div>
-      <div class="field"><label>Label (optional)</label>
+      <div class="field"><label>Label text (renders along arrow)</label>
         <input type="text" value="${ann.label}"
           oninput="updateAnnProp(${ann.id},'label',this.value)"></div>
       <div class="point-card-controls">
-        <div class="color-row"><label>Color</label>
+        <div class="color-row"><label>Arrow Color</label>
           <input type="color" value="${ann.color}"
             oninput="updateAnnProp(${ann.id},'color',this.value)"></div>
-        <div class="field"><label>Width</label>
+        <div class="field"><label>Arrow Width</label>
           <input type="number" value="${ann.width}" min="0.5" max="8" step="0.5"
             oninput="updateAnnProp(${ann.id},'width',parseFloat(this.value))"></div>
       </div>
+      <div class="point-card-controls">
+        <div class="field"><label>Label Font Size</label>
+          <input type="number" value="${ann.labelFontSize || 11}" min="8" max="36" step="1"
+            oninput="updateAnnProp(${ann.id},'labelFontSize',parseFloat(this.value))"></div>
+        <div class="color-row"><label>Label Color</label>
+          <input type="color" value="${lColor}"
+            oninput="updateAnnProp(${ann.id},'labelColor',this.value)"></div>
+      </div>
+      <div class="field"><label>Label Rotation offset (°)</label>
+        <input type="number" value="${ann.labelExtraAngle || 0}" min="-180" max="180" step="5"
+          oninput="updateAnnProp(${ann.id},'labelExtraAngle',parseFloat(this.value))"></div>
       <div class="field">
         <label>▲ Attach HEAD to…</label>
         <select id="ann-attach-head-${ann.id}"
@@ -421,6 +489,7 @@ function buildAnnotationCard(ann) {
   }
 
   list.appendChild(card);
+  if (typeof initColorSwatches === 'function') initColorSwatches();
 }
 
 function updateAnnProp(id, prop, value) {
