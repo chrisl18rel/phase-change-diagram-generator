@@ -177,6 +177,19 @@ function togglePanel(id) {
 
 // ── Mode toggle ────────────────────────────────────────────────────────────
 function setMode(mode) {
+  // Clear user-placed overlays when switching modes so they don't bleed across
+  if (mode !== STATE.mode) {
+    STATE.points      = [];
+    STATE.annotations = [];
+    const ptList  = el('point-list');
+    const annList = el('annotation-list');
+    const ptHint  = el('points-hint');
+    const annHint = el('annotations-hint');
+    if (ptList)  ptList.innerHTML  = '';
+    if (annList) annList.innerHTML = '';
+    if (ptHint)  ptHint.style.display  = '';
+    if (annHint) annHint.style.display = '';
+  }
   STATE.mode = mode;
   el('btn-mode-real').classList.toggle('active', mode === 'real');
   el('btn-mode-fake').classList.toggle('active', mode === 'fake');
@@ -185,7 +198,6 @@ function setMode(mode) {
   el('section-real').style.flexDirection  = 'column';
   el('section-fake').style.flexDirection  = 'column';
   el('panel-fake-controls').style.display = mode === 'fake' ? '' : 'none';
-  if (mode === 'fake') el('panel-fake-controls').style.display = '';
   renderDiagram();
 }
 
