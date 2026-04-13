@@ -73,25 +73,20 @@ body {
   width: var(--sidebar-w);
   min-width: var(--sidebar-w);
   max-width: var(--sidebar-w);
-  height: 100%;
   background: var(--navy-mid);
   border-right: 1px solid var(--border);
-  overflow-y: scroll;   /* always show the scrollbar track */
+  overflow-y: scroll;
   overflow-x: hidden;
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
   scrollbar-width: thin;
-  scrollbar-color: rgba(255,255,255,0.22) rgba(0,0,0,0.18);
+  scrollbar-color: #3a5275 rgba(0,0,0,0.4);
 }
-.sidebar::-webkit-scrollbar { width: 7px; }
-.sidebar::-webkit-scrollbar-track { background: rgba(0,0,0,0.22); }
-.sidebar::-webkit-scrollbar-thumb {
-  background: rgba(255,255,255,0.22);
-  border-radius: 4px;
-  border: 1px solid rgba(0,0,0,0.2);
-}
-.sidebar::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.38); }
+.sidebar::-webkit-scrollbar { width: 6px; }
+.sidebar::-webkit-scrollbar-track { background: rgba(0,0,0,0.4); border-radius: 3px; }
+.sidebar::-webkit-scrollbar-thumb { background: #3a5275; border-radius: 3px; }
+.sidebar::-webkit-scrollbar-thumb:hover { background: var(--gold); }
 
 /* Accordion panels */
 .panel { border-bottom: 1px solid var(--border-sub); }
