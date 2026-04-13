@@ -279,6 +279,9 @@ function drawMarkers(ctx) {
     return { rx: cx + 8, ry: cy - rh - 2, rw, rh };
   };
 
+  // Reset per-frame bbox storage
+  STATE._markerLabelBoxes = {};
+
   Object.entries(STATE.markers).forEach(([key, mk]) => {
     if (!mk.show) return;
     const pt = pts[key];
@@ -301,18 +304,28 @@ function drawMarkers(ctx) {
     ctx.stroke();
     ctx.restore();
 
-    // Label with collision avoidance
+    // Label — use manual override if set, otherwise auto-place
     if (mk.label) {
       ctx.save();
       ctx.font = `600 11px DM Sans, sans-serif`;
       const lw = ctx.measureText(mk.label).width;
       const lh = 13;
-      const placed = placeLabel(cv.x, cv.y, lw, lh);
+      const overKey = `${key}:label`;
+      const ov = STATE.labelOverrides?.[overKey];
+      let lx, ly;
+      if (ov != null) {
+        lx = cv.x + ov.dx;
+        ly = cv.y + ov.dy;
+      } else {
+        const placed = placeLabel(cv.x, cv.y, lw, lh);
+        lx = placed.rx; ly = placed.ry;
+        placedRects.push(placed);
+      }
+      STATE._markerLabelBoxes[overKey] = { x: lx, y: ly, w: lw, h: lh };
       ctx.fillStyle    = mk.color;
       ctx.textAlign    = 'left';
       ctx.textBaseline = 'top';
-      ctx.fillText(mk.label, placed.rx, placed.ry);
-      placedRects.push(placed);
+      ctx.fillText(mk.label, lx, ly);
       ctx.restore();
     }
 
@@ -322,12 +335,22 @@ function drawMarkers(ctx) {
       ctx.font = `11px DM Mono, monospace`;
       const pw2 = ctx.measureText(pair).width;
       const ph2 = 12;
-      const placed = placeLabel(cv.x, cv.y, pw2, ph2);
+      const overKey = `${key}:pair`;
+      const ov = STATE.labelOverrides?.[overKey];
+      let px, py;
+      if (ov != null) {
+        px = cv.x + ov.dx;
+        py = cv.y + ov.dy;
+      } else {
+        const placed = placeLabel(cv.x, cv.y, pw2, ph2);
+        px = placed.rx; py = placed.ry;
+        placedRects.push(placed);
+      }
+      STATE._markerLabelBoxes[overKey] = { x: px, y: py, w: pw2, h: ph2 };
       ctx.fillStyle    = mk.color;
       ctx.textAlign    = 'left';
       ctx.textBaseline = 'top';
-      ctx.fillText(pair, placed.rx, placed.ry);
-      placedRects.push(placed);
+      ctx.fillText(pair, px, py);
       ctx.restore();
     }
   });
