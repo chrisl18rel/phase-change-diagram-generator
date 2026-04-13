@@ -325,13 +325,14 @@ function moveAnnotation(id, data) {
 
 // After a text box moves, update all arrows attached to it
 function _syncAttachedArrows(textBox) {
+  const tbId = Number(textBox.id);  // normalize: prevent string vs number mismatch
   STATE.annotations.forEach(arrow => {
     if (arrow.type !== 'arrow') return;
-    if (arrow.attachHead === textBox.id) {
+    if (arrow.attachHead != null && Number(arrow.attachHead) === tbId) {
       arrow.T = textBox.T;
       arrow.P = textBox.P;
     }
-    if (arrow.attachTail === textBox.id) {
+    if (arrow.attachTail != null && Number(arrow.attachTail) === tbId) {
       arrow.T2 = textBox.T;
       arrow.P2 = textBox.P;
     }
@@ -340,13 +341,14 @@ function _syncAttachedArrows(textBox) {
 
 // Called when the user picks a text box from the attachment dropdown
 function setArrowAttach(arrowId, endpoint, rawVal) {
-  const arrow   = STATE.annotations.find(a => a.id === arrowId);
+  const arrow = STATE.annotations.find(a => Number(a.id) === Number(arrowId));
   if (!arrow) return;
-  const boxId = rawVal === '' ? null : parseInt(rawVal);
-  const box   = boxId != null ? STATE.annotations.find(a => a.id === boxId) : null;
+  const boxId = (rawVal === '' || rawVal == null) ? null : Number(rawVal);
+  const box   = boxId != null ? STATE.annotations.find(a => Number(a.id) === boxId) : null;
 
   if (endpoint === 'head') {
     arrow.attachHead = boxId;
+    // Snap head to text box position immediately
     if (box) { arrow.T  = box.T; arrow.P  = box.P; }
   } else {
     arrow.attachTail = boxId;
@@ -452,20 +454,21 @@ function buildAnnotationCard(ann) {
 }
 
 function updateAnnProp(id, prop, value) {
-  const ann = STATE.annotations.find(a => a.id === id);
+  const ann = STATE.annotations.find(a => Number(a.id) === Number(id));
   if (ann) { ann[prop] = value; renderDiagram(); }
 }
 
 function removeAnnotation(id) {
-  // Detach any arrows pointing to this annotation
+  const numId = Number(id);
+  // Detach any arrows that reference this annotation by ID
   STATE.annotations.forEach(arrow => {
     if (arrow.type !== 'arrow') return;
-    if (arrow.attachHead === id) arrow.attachHead = null;
-    if (arrow.attachTail === id) arrow.attachTail = null;
+    if (Number(arrow.attachHead) === numId) arrow.attachHead = null;
+    if (Number(arrow.attachTail) === numId) arrow.attachTail = null;
   });
-  STATE.annotations = STATE.annotations.filter(a => a.id !== id);
+  STATE.annotations = STATE.annotations.filter(a => Number(a.id) !== numId);
   document.getElementById(`ann-card-${id}`)?.remove();
   if (!STATE.annotations.length) el('annotations-hint').style.display = '';
-  _refreshAttachDropdowns();  // remove the deleted box from arrow dropdowns
+  _refreshAttachDropdowns();
   renderDiagram();
 }
