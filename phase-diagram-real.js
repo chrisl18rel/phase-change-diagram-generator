@@ -141,51 +141,88 @@ function _drawRealRegionLabels(ctx, m, pw, ph, sv, sl, lv, tp, cp) {
   const plotT = m.top,  plotB = m.top + ph;
 
   STATE._regionLabelBoxes = {};
+  STATE._regionBounds     = {};
   const { labelSize, labelColor } = STATE.regions;
 
+  const src      = COMPOUND_DATA[STATE.compoundKey];
+  const negSlope = src?.negativeSlope;
+
+  // ── Compute approximate safe zone for each region ─────────────────────────
+  if (tp) {
+    // SOLID: left of SL curve (or left of triple point for water)
+    const slLeftX = sl.length
+      ? Math.min(...sl.map(p => p.x))
+      : tp.x;
+    STATE._regionBounds.solid = negSlope
+      ? { xMin: plotL + 4, xMax: tp.x + (tp.x - plotL) * 0.4, yMin: plotT + 4, yMax: plotB - 4 }
+      : { xMin: plotL + 4, xMax: slLeftX - 8,                  yMin: plotT + 4, yMax: plotB - 4 };
+
+    // GAS: below LV/SV, right portion
+    STATE._regionBounds.gas = {
+      xMin: tp.x + (plotR - tp.x) * 0.05,
+      xMax: plotR - 4,
+      yMin: tp.y + (plotB - tp.y) * 0.05,
+      yMax: plotB - 4
+    };
+  }
+  if (tp && cp) {
+    // LIQUID: between SL and LV, above triple point
+    STATE._regionBounds.liquid = {
+      xMin: tp.x + 5,
+      xMax: cp.x - 5,
+      yMin: plotT + 4,
+      yMax: tp.y - 5     // tp.y is larger (lower on canvas = lower pressure)
+    };
+  }
+  if (cp) {
+    // SUPERCRITICAL: upper-right beyond critical point
+    STATE._regionBounds.super = {
+      xMin: cp.x + 8,
+      xMax: plotR - 4,
+      yMin: plotT + 4,
+      yMax: cp.y - 4     // cp.y is smaller (higher on canvas = higher pressure)
+    };
+  }
+
+  // ── Draw a label, apply stored override, clamp to bounds ─────────────────
   const drawLabel = (key, defaultX, defaultY, text) => {
-    ctx.save();
+    const bounds = STATE._regionBounds[key];
+    if (!bounds) return;           // region has no valid bounds, skip
+
     ctx.font = `bold ${labelSize}px DM Sans, sans-serif`;
     const tw = ctx.measureText(text).width;
     const th = labelSize;
 
-    // Apply user drag offset if present, else use computed default
+    // Apply user override (absolute canvas coords of top-left)
     const ov = STATE.regionLabelOffsets?.[key];
-    // Default uses center-anchored coords; ov stores absolute top-left
-    const cx = ov ? ov.x + tw / 2 : defaultX;
-    const cy = ov ? ov.y + th / 2 : defaultY;
+    let cx = ov ? ov.x + tw / 2 : defaultX;
+    let cy = ov ? ov.y + th / 2 : defaultY;
 
-    // Clamp centre within plot area
-    const fx = Math.max(plotL + tw/2 + 2, Math.min(plotR - tw/2 - 2, cx));
-    const fy = Math.max(plotT + th/2 + 2, Math.min(plotB - th/2 - 2, cy));
+    // Always clamp to region bounds so label can never escape its region
+    cx = Math.max(bounds.xMin + tw / 2, Math.min(bounds.xMax - tw / 2, cx));
+    cy = Math.max(bounds.yMin + th / 2, Math.min(bounds.yMax - th / 2, cy));
 
+    ctx.save();
     ctx.fillStyle    = labelColor;
     ctx.textAlign    = 'center';
     ctx.textBaseline = 'middle';
     ctx.globalAlpha  = 0.75;
-    ctx.fillText(text, fx, fy);
+    ctx.fillText(text, cx, cy);
     ctx.restore();
 
-    // Store top-left bbox for hit-testing
-    STATE._regionLabelBoxes[key] = { x: fx - tw/2, y: fy - th/2, w: tw, h: th };
+    STATE._regionLabelBoxes[key] = { x: cx - tw / 2, y: cy - th / 2, w: tw, h: th };
   };
 
   if (STATE.regions.solid.showLabel && tp) {
-    const slMidX    = sl.length ? sl[Math.floor(sl.length / 2)].x : tp.x;
-    const solidX    = (plotL + Math.min(slMidX, tp.x)) / 2;
-    drawLabel('solid', solidX, plotT + ph * 0.3, 'SOLID');
+    const slMidX = sl.length ? sl[Math.floor(sl.length / 2)].x : tp.x;
+    drawLabel('solid', (plotL + Math.min(slMidX, tp.x)) / 2, plotT + ph * 0.30, 'SOLID');
   }
-
   if (STATE.regions.liquid.showLabel && tp && cp) {
     drawLabel('liquid', (tp.x + cp.x) / 2, plotT + ph * 0.25, 'LIQUID');
   }
-
   if (STATE.regions.gas.showLabel && tp) {
-    const gasX = tp.x + (plotR - tp.x) * 0.45;
-    const gasY = tp.y + (plotB - tp.y) * 0.55;
-    drawLabel('gas', gasX, gasY, 'GAS');
+    drawLabel('gas', tp.x + (plotR - tp.x) * 0.45, tp.y + (plotB - tp.y) * 0.55, 'GAS');
   }
-
   if (STATE.regions.super.showLabel && cp) {
     drawLabel('super', (cp.x + plotR) / 2, plotT + ph * 0.12, 'SUPERCRITICAL');
   }
