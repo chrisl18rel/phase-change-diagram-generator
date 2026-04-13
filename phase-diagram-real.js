@@ -147,58 +147,83 @@ function _drawRealRegionLabels(ctx, m, pw, ph, sv, sl, lv, tp, cp) {
   const src      = COMPOUND_DATA[STATE.compoundKey];
   const negSlope = src?.negativeSlope;
 
-  // ── Compute approximate safe zone for each region ─────────────────────────
+  // ── Compute safe zone for EVERY region regardless of showLabel ────────────
+  // This ensures bounds are always ready for clamping during drag.
   if (tp) {
-    // SOLID: left of SL curve (or left of triple point for water)
-    const slLeftX = sl.length
-      ? Math.min(...sl.map(p => p.x))
-      : tp.x;
-    STATE._regionBounds.solid = negSlope
-      ? { xMin: plotL + 4, xMax: tp.x + (tp.x - plotL) * 0.4, yMin: plotT + 4, yMax: plotB - 4 }
-      : { xMin: plotL + 4, xMax: slLeftX - 8,                  yMin: plotT + 4, yMax: plotB - 4 };
+    const slLeftX = sl.length ? Math.min(...sl.map(p => p.x)) : tp.x;
 
-    // GAS: below LV/SV, right portion
+    // SOLID: everything left of the SL curve
+    STATE._regionBounds.solid = negSlope
+      ? { xMin: plotL + 4, xMax: Math.min(tp.x - 4, tp.x + (tp.x - plotL) * 0.35),
+          yMin: plotT + 4,  yMax: plotB - 4 }
+      : { xMin: plotL + 4, xMax: Math.max(plotL + 20, slLeftX - 8),
+          yMin: plotT + 4,  yMax: plotB - 4 };
+
+    // GAS: below the triple point (canvas y > tp.y means lower pressure = gas side)
     STATE._regionBounds.gas = {
       xMin: tp.x + (plotR - tp.x) * 0.05,
       xMax: plotR - 4,
-      yMin: tp.y + (plotB - tp.y) * 0.05,
+      yMin: tp.y + (plotB - tp.y) * 0.05,  // slightly below tp
       yMax: plotB - 4
     };
   }
   if (tp && cp) {
-    // LIQUID: between SL and LV, above triple point
+    // LIQUID: between SL and LV curves, horizontally tp→cp, vertically plotT→tp
+    // Note: in canvas coords, LOWER y = HIGHER on screen = HIGHER pressure.
+    // tp.y > cp.y  (triple point is lower-pressure → lower on screen → higher canvas y)
+    // Liquid sits ABOVE the LV curve, so y < tp.y.
     STATE._regionBounds.liquid = {
-      xMin: tp.x + 5,
-      xMax: cp.x - 5,
+      xMin: Math.min(tp.x + 5, cp.x - 20),
+      xMax: Math.max(cp.x - 5, tp.x + 20),
       yMin: plotT + 4,
-      yMax: tp.y - 5     // tp.y is larger (lower on canvas = lower pressure)
+      yMax: Math.max(tp.y - 8, plotT + 20)  // never collapses to nothing
     };
   }
   if (cp) {
-    // SUPERCRITICAL: upper-right beyond critical point
+    // SUPERCRITICAL: upper-right quadrant beyond the critical point
     STATE._regionBounds.super = {
-      xMin: cp.x + 8,
+      xMin: Math.min(cp.x + 8, plotR - 20),
       xMax: plotR - 4,
       yMin: plotT + 4,
-      yMax: cp.y - 4     // cp.y is smaller (higher on canvas = higher pressure)
+      yMax: Math.max(cp.y - 4, plotT + 20)  // cp.y is small (high pressure = high on screen)
     };
   }
 
-  // ── Draw a label, apply stored override, clamp to bounds ─────────────────
+  // ── Draw a label — clamp to region, auto-clear stale overrides ────────────
   const drawLabel = (key, defaultX, defaultY, text) => {
     const bounds = STATE._regionBounds[key];
-    if (!bounds) return;           // region has no valid bounds, skip
+    if (!bounds) return;
+
+    // Validate bounds have positive area; fallback to plot centre if degenerate
+    const bw = bounds.xMax - bounds.xMin;
+    const bh = bounds.yMax - bounds.yMin;
+    if (bw < 10 || bh < 10) return;
 
     ctx.font = `bold ${labelSize}px DM Sans, sans-serif`;
     const tw = ctx.measureText(text).width;
     const th = labelSize;
 
-    // Apply user override (absolute canvas coords of top-left)
     const ov = STATE.regionLabelOffsets?.[key];
-    let cx = ov ? ov.x + tw / 2 : defaultX;
-    let cy = ov ? ov.y + th / 2 : defaultY;
+    let cx, cy;
 
-    // Always clamp to region bounds so label can never escape its region
+    if (ov) {
+      cx = ov.x + tw / 2;
+      cy = ov.y + th / 2;
+      // Clear stale overrides that have drifted well outside the current region
+      const margin = 60;
+      const stale  = cx < bounds.xMin - margin || cx > bounds.xMax + margin ||
+                     cy < bounds.yMin - margin || cy > bounds.yMax + margin;
+      if (stale) {
+        delete STATE.regionLabelOffsets[key];
+        cx = defaultX;
+        cy = defaultY;
+      }
+    } else {
+      cx = defaultX;
+      cy = defaultY;
+    }
+
+    // Hard-clamp to region bounds
     cx = Math.max(bounds.xMin + tw / 2, Math.min(bounds.xMax - tw / 2, cx));
     cy = Math.max(bounds.yMin + th / 2, Math.min(bounds.yMax - th / 2, cy));
 
