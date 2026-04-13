@@ -22,6 +22,7 @@ function addUserPoint(pos) {
   STATE.points.push(pt);
   el('points-hint').style.display = 'none';
   buildPointCard(pt);
+  if (typeof _refreshAttachDropdowns === 'function') _refreshAttachDropdowns();
   renderDiagram();
 }
 
@@ -48,24 +49,39 @@ function renderPoints(ctx) {
     ctx.stroke();
     ctx.restore();
 
-    // Label
-    ctx.save();
-    ctx.fillStyle = pt.color;
-    ctx.font      = `600 11px DM Sans, sans-serif`;
-    ctx.textAlign    = 'left';
-    ctx.textBaseline = 'bottom';
-    ctx.fillText(pt.label, cv.x + pt.size + 4, cv.y - 2);
-    ctx.restore();
+    // Label — with optional drag override
+    STATE._pointLabelBoxes = STATE._pointLabelBoxes || {};
+    {
+      ctx.save();
+      ctx.fillStyle    = pt.color;
+      ctx.font         = `600 11px DM Sans, sans-serif`;
+      const lw = ctx.measureText(pt.label).width;
+      const lh = 13;
+      const ov = STATE.labelOverrides?.[`pt:${pt.id}:label`];
+      const lx = cv.x + (ov != null ? ov.dx : pt.size + 4);
+      const ly = cv.y + (ov != null ? ov.dy : -2 - lh);
+      STATE._pointLabelBoxes[`pt:${pt.id}:label`] = { x: lx, y: ly, w: lw, h: lh };
+      ctx.textAlign    = 'left';
+      ctx.textBaseline = 'top';
+      ctx.fillText(pt.label, lx, ly);
+      ctx.restore();
+    }
 
-    // Ordered pair
+    // Ordered pair — with optional drag override
     if (pt.showPair) {
       const pair = `(${formatVal(pt.T)}, ${formatVal(pt.P)})`;
       ctx.save();
       ctx.fillStyle    = pt.color;
       ctx.font         = `11px DM Mono, monospace`;
+      const pw2 = ctx.measureText(pair).width;
+      const ph2 = 12;
+      const ov  = STATE.labelOverrides?.[`pt:${pt.id}:pair`];
+      const px  = cv.x + (ov != null ? ov.dx : pt.size + 4);
+      const py  = cv.y + (ov != null ? ov.dy : 2);
+      STATE._pointLabelBoxes[`pt:${pt.id}:pair`] = { x: px, y: py, w: pw2, h: ph2 };
       ctx.textAlign    = 'left';
       ctx.textBaseline = 'top';
-      ctx.fillText(pair, cv.x + pt.size + 4, cv.y + 2);
+      ctx.fillText(pair, px, py);
       ctx.restore();
     }
   });
@@ -164,5 +180,6 @@ function removePoint(id) {
   STATE.points = STATE.points.filter(p => p.id !== id);
   document.getElementById(`point-card-${id}`)?.remove();
   if (!STATE.points.length) el('points-hint').style.display = '';
+  if (typeof _refreshAttachDropdowns === 'function') _refreshAttachDropdowns();
   renderDiagram();
 }
