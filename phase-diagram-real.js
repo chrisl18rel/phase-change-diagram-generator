@@ -90,34 +90,27 @@ function drawRealRegions(ctx, m, pw, ph) {
   }, STATE.regions.gas);
 
   // ── SOLID region ──────────────────────────────────────────────────────────
-  // For NORMAL slope: left of SL, above SV
-  // For NEGATIVE slope (water): SL leans left, solid region is to the LEFT of SL
-  // In both cases: trace bottom-left corner → up SV curve (reversed) → up SL curve → top edge → close
   fill(() => {
     if (!sv.length || !sl.length || !tp) return;
 
+    // For BOTH slope types: start at bottom-left, walk along the bottom to the
+    // start of the SV curve, follow SV up to the triple point, then follow SL
+    // upward. This eliminates the white gap between plotL and sv[0].
+    ctx.moveTo(plotL, plotB);
+    ctx.lineTo(sv[0].x, plotB);       // along bottom edge to SV start
+    sv.forEach(pt => ctx.lineTo(pt.x, pt.y));  // UP the SV curve to triple point
+    sl.forEach(pt => ctx.lineTo(pt.x, pt.y));  // UP the SL curve
+
     if (negSlope) {
-      // Water: SL slopes left (higher pressure = lower T)
-      // Solid is: left edge → bottom-left → up SV reversed → along SL (going left+up) → top edge
-      ctx.moveTo(plotL, plotB);
-      // Traverse SV in reverse (bottom to triple point)
-      sv.slice().reverse().forEach(pt => ctx.lineTo(pt.x, pt.y));
-      // At triple point, follow SL upward (which goes LEFT as pressure increases)
-      sl.forEach(pt => ctx.lineTo(pt.x, pt.y));
-      // SL end goes off the top — close via left edge
+      // Water: SL goes LEFT as pressure rises → exits through the left edge
       ctx.lineTo(plotL, plotT);
-      ctx.closePath();
     } else {
-      // Normal slope: SL curves slightly right as pressure increases
-      ctx.moveTo(plotL, plotB);
-      sv.slice().reverse().forEach(pt => ctx.lineTo(pt.x, pt.y));
-      sl.forEach(pt => ctx.lineTo(pt.x, pt.y));
+      // Normal slope: SL drifts slightly right → close via top-left corner
       const slEnd = sl[sl.length - 1];
-      // SL end: go straight up to top, then left to plotL
       ctx.lineTo(slEnd.x, plotT);
       ctx.lineTo(plotL, plotT);
-      ctx.closePath();
     }
+    ctx.closePath();
   }, STATE.regions.solid);
 
   // ── LIQUID region ─────────────────────────────────────────────────────────
