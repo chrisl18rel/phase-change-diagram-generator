@@ -283,23 +283,24 @@ function _moveFakeKeyPoint(type, data) {
     const dT = data.T - fc.triplePoint.T;
     const dP = data.P - fc.triplePoint.P;
     fc.triplePoint = { T: data.T, P: data.P };
-    // Shift ALL curve points AND key markers by the same delta
     ['solidLiquidCurve','liquidVaporCurve','solidVaporCurve'].forEach(k => {
       fc[k] = fc[k].map(p => ({ T: p.T + dT, P: p.P + dP }));
     });
-    fc._handleSL   = { T: fc._handleSL.T   + dT, P: fc._handleSL.P   + dP };
-    fc._handleSV   = { T: fc._handleSV.T   + dT, P: fc._handleSV.P   + dP };
+    fc._handleSL    = { T: fc._handleSL.T    + dT, P: fc._handleSL.P    + dP };
+    fc._handleSV    = { T: fc._handleSV.T    + dT, P: fc._handleSV.P    + dP };
     fc.criticalPoint = { T: fc.criticalPoint.T + dT, P: fc.criticalPoint.P + dP };
-    fc._handleLV   = { T: fc._handleLV.T   + dT, P: fc._handleLV.P   + dP };
+    fc._handleLV    = { T: fc._handleLV.T    + dT, P: fc._handleLV.P    + dP };
+    if (fc.normalMeltingPoint)
+      fc.normalMeltingPoint = { T: fc.normalMeltingPoint.T + dT, P: fc.normalMeltingPoint.P + dP };
+    if (fc.normalBoilingPoint)
+      fc.normalBoilingPoint = { T: fc.normalBoilingPoint.T + dT, P: fc.normalBoilingPoint.P + dP };
+
   } else if (type === 'critical') {
     fc.criticalPoint = { T: data.T, P: data.P };
-    // Redistribute ALL LV curve points between fixed triple point and new critical point.
-    // Without this, moving cp only updates the last point and the curve appears
-    // to start from an arbitrary mid-point.
     const lv  = fc.liquidVaporCurve;
     const n   = lv.length;
     const tp  = fc.triplePoint;
-    const exp = fc._lvCurve || 1.3;  // preserve original curvature shape
+    const exp = fc._lvCurve || 1.3;
     for (let i = 0; i < n; i++) {
       const frac  = i / (n - 1);
       const fracP = Math.pow(frac, exp);
@@ -309,34 +310,62 @@ function _moveFakeKeyPoint(type, data) {
       };
     }
     fc._handleLV = { T: data.T, P: data.P };
+    _recalcFakeStandardPoints(fc);
+  }
+}
+
+// Recalculate NMP and NBP based on current curve state
+function _recalcFakeStandardPoints(fc) {
+  const oneAtm_disp = UNIT_CONVERSIONS.pressure.fromPa[STATE.pressUnit](101325);
+  const tp = fc.triplePoint;
+  fc.normalMeltingPoint = tp.P <= oneAtm_disp ? { T: tp.T, P: oneAtm_disp } : null;
+  if (fc.criticalPoint.P >= oneAtm_disp && tp.P <= oneAtm_disp) {
+    const lv = fc.liquidVaporCurve;
+    let nbpT = null;
+    for (let i = 0; i < lv.length - 1; i++) {
+      const p1 = lv[i].P, p2 = lv[i + 1].P;
+      if ((p1 <= oneAtm_disp && p2 >= oneAtm_disp) || (p1 >= oneAtm_disp && p2 <= oneAtm_disp)) {
+        const frac = (oneAtm_disp - p1) / (p2 - p1);
+        nbpT = lv[i].T + frac * (lv[i + 1].T - lv[i].T);
+        break;
+      }
+    }
+    fc.normalBoilingPoint = nbpT != null ? { T: nbpT, P: oneAtm_disp } : null;
+  } else {
+    fc.normalBoilingPoint = null;
   }
 }
 
 function _moveFakeLineHandle(type, data) {
   const fc = STATE.fakeCompound;
   if (!fc) return;
+  // Triple point is always the FIXED anchor — only the far end moves
+  const tp = fc.triplePoint;
 
   if (type === 'sl-handle') {
     fc._handleSL = { T: data.T, P: data.P };
     const sl = fc.solidLiquidCurve;
-    const n = sl.length;
-    // Smoothly re-interpolate between triple point and new handle
+    const n  = sl.length;
+    // Enforce: sl[0] stays at triple point
+    sl[0] = { T: tp.T, P: tp.P };
     for (let i = 1; i < n; i++) {
       const frac = i / (n - 1);
       sl[i] = {
-        T: sl[0].T + (data.T - sl[0].T) * frac,
-        P: sl[0].P + (data.P - sl[0].P) * frac
+        T: tp.T + (data.T - tp.T) * frac,
+        P: tp.P + (data.P - tp.P) * frac
       };
     }
   } else if (type === 'sv-handle') {
     fc._handleSV = { T: data.T, P: data.P };
     const sv = fc.solidVaporCurve;
-    const n = sv.length;
+    const n  = sv.length;
+    // Enforce: sv[n-1] stays at triple point
+    sv[n - 1] = { T: tp.T, P: tp.P };
     for (let i = 0; i < n - 1; i++) {
       const frac = i / (n - 1);
       sv[i] = {
-        T: data.T + (sv[n-1].T - data.T) * frac,
-        P: data.P + (sv[n-1].P - data.P) * frac
+        T: data.T + (tp.T - data.T) * frac,
+        P: data.P + (tp.P - data.P) * frac
       };
     }
   }
