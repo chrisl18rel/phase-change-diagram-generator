@@ -260,7 +260,12 @@ function continueDrag(pos) {
   } else if (type === 'point') {
     if (typeof movePoint === 'function') movePoint(STATE.drag.id, data);
   } else if (type === 'annotation') {
-    if (typeof moveAnnotation === 'function') moveAnnotation(STATE.drag.id, data);
+    if (STATE.drag.endpoint === 'label') {
+      // Arrow label drag needs raw canvas coords, not data coords
+      if (typeof moveArrowLabel === 'function') moveArrowLabel(STATE.drag.id, snapped);
+    } else {
+      if (typeof moveAnnotation === 'function') moveAnnotation(STATE.drag.id, data);
+    }
   } else if (type === 'region-label') {
     if (typeof moveRegionLabel === 'function') moveRegionLabel(STATE.drag.id, snapped);
   } else if (type === 'marker-label') {
