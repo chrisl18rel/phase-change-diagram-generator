@@ -1,723 +1,293 @@
-<!-- phase-diagram.html -->
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Phase Diagram Generator</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=DM+Sans:wght@400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="phase-diagram.css">
-</head>
-<body>
+// phase-diagram-labels.js
+// Label drag (region, marker, point labels/pairs) + extended arrow attachment.
 
-  <!-- ── HEADER ─────────────────────────────────────────────────── -->
-  <header class="app-header">
-    <h1>Phase Diagram Generator</h1>
-    <span class="hint">— Click the graph to plot points &nbsp;·&nbsp; Drag points to move them</span>
-    <button class="btn-clear-all" onclick="clearAll()" title="Reset everything to a clean state">⟳ Clear All</button>
-    <span class="version-badge">v2.0</span>
-  </header>
+const LABEL_HIT_PAD = 5;  // extra px hit area around every draggable label
 
-  <div class="app-body">
+// ═══════════════════════════════════════════════════════════════════════════
+// ── LABEL DRAG ─────────────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════
 
-    <!-- ══════════════════ SIDEBAR ══════════════════ -->
-    <aside class="sidebar" id="sidebar">
+function startLabelDrag(pos) {
+  // 1. Region labels (SOLID, LIQUID, GAS, SUPERCRITICAL)
+  const rl = STATE._regionLabelBoxes || {};
+  for (const key of ['solid','liquid','gas','super']) {
+    const b = rl[key];
+    if (!b) continue;
+    if (_lhit(pos, b)) {
+      STATE.drag.active = true;
+      STATE.drag.type   = 'region-label';
+      STATE.drag.id     = key;
+      STATE.drag.ox     = pos.x - b.x;
+      STATE.drag.oy     = pos.y - b.y;
+      return true;
+    }
+  }
+  // 2. Marker labels / pairs  (key encoded as 'triple:label' etc.)
+  const ml = STATE._markerLabelBoxes || {};
+  for (const [bkey, b] of Object.entries(ml)) {
+    if (!b) continue;
+    if (_lhit(pos, b)) {
+      STATE.drag.active = true;
+      STATE.drag.type   = 'marker-label';
+      STATE.drag.id     = bkey;
+      STATE.drag.ox     = pos.x - b.x;
+      STATE.drag.oy     = pos.y - b.y;
+      return true;
+    }
+  }
+  // 3. User point labels / pairs  (key encoded as 'pt:5:label' etc.)
+  const pl = STATE._pointLabelBoxes || {};
+  for (const [bkey, b] of Object.entries(pl)) {
+    if (!b) continue;
+    if (_lhit(pos, b)) {
+      STATE.drag.active = true;
+      STATE.drag.type   = 'point-label';
+      STATE.drag.id     = bkey;
+      STATE.drag.ox     = pos.x - b.x;
+      STATE.drag.oy     = pos.y - b.y;
+      return true;
+    }
+  }
+  return false;
+}
 
-      <!-- ── 1. COMPOUND ──────────────────────────────────────── -->
-      <div class="panel open" id="panel-compound">
-        <div class="panel-header" onclick="togglePanel('panel-compound')">
-          <span class="panel-title">Compound</span>
-          <span class="panel-chevron">▼</span>
-        </div>
-        <div class="panel-body">
-          <div class="mode-toggle">
-            <button id="btn-mode-real" class="active" onclick="setMode('real')">Real</button>
-            <button id="btn-mode-fake" onclick="setMode('fake')">Fake</button>
-          </div>
+function _lhit(pos, b) {
+  return pos.x >= b.x - LABEL_HIT_PAD && pos.x <= b.x + b.w + LABEL_HIT_PAD &&
+         pos.y >= b.y - LABEL_HIT_PAD && pos.y <= b.y + b.h + LABEL_HIT_PAD;
+}
 
-          <!-- Real compound section -->
-          <div id="section-real">
-            <div class="field">
-              <label>Search Compound</label>
-              <div class="search-wrap">
-                <input type="text" id="compound-search" placeholder="e.g. Water, CO₂, Ammonia…" oninput="filterCompounds(this.value)">
-                <span class="search-icon">⌕</span>
-              </div>
-            </div>
-            <div class="field">
-              <label>Select Compound</label>
-              <select id="compound-select" onchange="loadCompound(this.value)" size="1">
-                <option value="">— Select a compound —</option>
-                <option value="water">Water (H₂O)</option>
-                <option value="carbonDioxide">Carbon Dioxide (CO₂)</option>
-                <option value="sulfurDioxide">Sulfur Dioxide (SO₂)</option>
-                <option value="ammonia">Ammonia (NH₃)</option>
-                <option value="nitrogen">Nitrogen (N₂)</option>
-                <option value="oxygen">Oxygen (O₂)</option>
-                <option value="methane">Methane (CH₄)</option>
-                <option value="ethanol">Ethanol (C₂H₅OH)</option>
-                <option value="benzene">Benzene (C₆H₆)</option>
-                <option value="iodine">Iodine (I₂)</option>
-              </select>
-            </div>
-            <div class="compound-info" id="compound-info">
-              <div class="compound-name" id="info-name">—</div>
-              <div class="compound-formula" id="info-formula"></div>
-              <div class="compound-stats" id="info-stats"></div>
-            </div>
-            <div class="sub-note" id="sublimate-note">
-              ⚠ This compound sublimates at 1 atm — it has no liquid state at standard pressure.
-            </div>
-            <div class="anomaly-badge" id="water-anomaly-badge">
-              <span class="icon">⚠</span>
-              <span id="anomaly-text"></span>
-            </div>
-          </div>
+// ── Move handlers (called from continueDrag in fake.js) ────────────────────
+function moveRegionLabel(key, pos) {
+  STATE.regionLabelOffsets = STATE.regionLabelOffsets || {};
 
-          <!-- Fake compound section -->
-          <div id="section-fake" style="display:none; flex-direction:column; gap:10px;">
-            <button class="btn btn-gold" onclick="generateFakeCompound()">⚡ Generate New Fake Compound</button>
-            <div class="storage-bar-wrap">
-              <div class="storage-label">
-                <span>Library</span>
-                <span id="library-count">0 / 5</span>
-              </div>
-              <div class="storage-bar">
-                <div class="storage-fill" id="storage-fill"></div>
-              </div>
-            </div>
-            <div class="library-list" id="library-list">
-              <div class="empty-hint">No saved compounds yet</div>
-            </div>
-          </div>
-        </div>
-      </div>
+  const b      = STATE._regionLabelBoxes?.[key];
+  const bounds = STATE._regionBounds?.[key];
+  const tw     = b ? b.w : 50;
+  const th     = b ? b.h : 16;
 
-      <!-- ── 2. DISPLAY UNITS ──────────────────────────────────── -->
-      <div class="panel open" id="panel-units">
-        <div class="panel-header" onclick="togglePanel('panel-units')">
-          <span class="panel-title">Display Units</span>
-          <span class="panel-chevron">▼</span>
-        </div>
-        <div class="panel-body">
-          <div class="field">
-            <label>Temperature (X-Axis)</label>
-            <div class="pill-group" id="temp-unit-group">
-              <button class="active" onclick="setTempUnit('C', this)">°C</button>
-              <button onclick="setTempUnit('F', this)">°F</button>
-              <button onclick="setTempUnit('K', this)">K</button>
-            </div>
-          </div>
-          <div class="field">
-            <label>Pressure (Y-Axis)</label>
-            <div class="pill-group" id="press-unit-group" style="flex-wrap:wrap;">
-              <button class="active" onclick="setPressUnit('atm', this)">atm</button>
-              <button onclick="setPressUnit('kPa', this)">kPa</button>
-              <button onclick="setPressUnit('Pa', this)">Pa</button>
-              <button onclick="setPressUnit('bar', this)">bar</button>
-              <button onclick="setPressUnit('mmHg', this)">mmHg</button>
-              <button onclick="setPressUnit('Torr', this)">Torr</button>
-              <button onclick="setPressUnit('PSI', this)">PSI</button>
-            </div>
-          </div>
-          <div class="toggle-wrap">
-            <span class="toggle-label" style="font-size:0.72rem;">
-              Log Pressure Scale
-              <span style="font-size:0.65rem; color:var(--text-muted); display:block; margin-top:2px;">
-                Recommended for water &amp; most real compounds
-              </span>
-            </span>
-            <label class="toggle-switch">
-              <input type="checkbox" id="log-pressure" onchange="onLogScaleChange()">
-              <span class="toggle-slider"></span>
-            </label>
-          </div>
-        </div>
-      </div>
+  // Center position after drag, accounting for where user grabbed the label
+  let cx = (pos.x - STATE.drag.ox) + tw / 2;
+  let cy = (pos.y - STATE.drag.oy) + th / 2;
 
-      <!-- ── 3. AXES & SCALE ───────────────────────────────────── -->
-      <div class="panel" id="panel-axes">
-        <div class="panel-header" onclick="togglePanel('panel-axes')">
-          <span class="panel-title">Axes &amp; Scale</span>
-          <span class="panel-chevron">▼</span>
-        </div>
-        <div class="panel-body">
-          <div class="field">
-            <label id="xaxis-label">X-Axis — Temperature (°C)</label>
-            <div class="row-2">
-              <div class="field"><label>Min</label><input type="number" id="x-min" value="-100" onchange="updateAxes()"></div>
-              <div class="field"><label>Max</label><input type="number" id="x-max" value="500" onchange="updateAxes()"></div>
-            </div>
-            <div class="row-2">
-              <div class="field"><label>Major ticks</label><input type="number" id="x-major" value="100" min="1" onchange="updateAxes()"></div>
-              <div class="field"><label>Minor ticks</label><input type="number" id="x-minor" value="25" min="1" onchange="updateAxes()"></div>
-            </div>
-          </div>
-          <hr class="divider">
-          <div class="field">
-            <label id="yaxis-label">Y-Axis — Pressure (atm)</label>
-            <div class="row-2">
-              <div class="field"><label>Min</label><input type="number" id="y-min" value="0" onchange="updateAxes()"></div>
-              <div class="field"><label>Max</label><input type="number" id="y-max" value="250" onchange="updateAxes()"></div>
-            </div>
-            <div class="row-2">
-              <div class="field"><label>Major ticks</label><input type="number" id="y-major" value="50" min="1" onchange="updateAxes()"></div>
-              <div class="field"><label>Minor ticks</label><input type="number" id="y-minor" value="10" min="1" onchange="updateAxes()"></div>
-            </div>
-          </div>
-          <hr class="divider">
-          <div class="toggle-wrap">
-            <span class="toggle-label">Show Grid</span>
-            <label class="toggle-switch">
-              <input type="checkbox" id="toggle-grid" checked onchange="renderDiagram()">
-              <span class="toggle-slider"></span>
-            </label>
-          </div>
-          <div class="row-3">
-            <div class="field">
-              <label>Grid Color</label>
-              <input type="color" id="grid-color" value="#000000" onchange="renderDiagram()">
-            </div>
-            <div class="field">
-              <label>Opacity %</label>
-              <input type="number" id="grid-opacity" value="7" min="1" max="80" onchange="renderDiagram()">
-            </div>
-            <div class="field">
-              <label>Width</label>
-              <input type="number" id="grid-width" value="0.5" min="0.1" max="5" step="0.1" onchange="renderDiagram()">
-            </div>
-          </div>
-          <button class="btn btn-navy" onclick="autoScaleAxes()">Auto-Scale to Compound</button>
-        </div>
-      </div>
+  // Hard-clamp to region bounds so label can never leave its region
+  if (bounds) {
+    cx = Math.max(bounds.xMin + tw / 2, Math.min(bounds.xMax - tw / 2, cx));
+    cy = Math.max(bounds.yMin + th / 2, Math.min(bounds.yMax - th / 2, cy));
+  }
 
-      <!-- ── 4. APPEARANCE ────────────────────────────────────── -->
-      <div class="panel" id="panel-appearance">
-        <div class="panel-header" onclick="togglePanel('panel-appearance')">
-          <span class="panel-title">Appearance</span>
-          <span class="panel-chevron">▼</span>
-        </div>
-        <div class="panel-body">
-          <div class="field">
-            <label>Chart Title (optional)</label>
-            <input type="text" id="chart-title" placeholder="e.g. Phase Diagram of Water" oninput="renderDiagram()">
-          </div>
-          <div class="row-2">
-            <div class="field"><label>Title Size</label><input type="number" id="title-size" value="18" min="8" max="48" onchange="renderDiagram()"></div>
-            <div class="field"><label>Title Color</label><input type="color" id="title-color" value="#111111" onchange="renderDiagram()"></div>
-          </div>
-          <hr class="divider">
-          <div class="row-2">
-            <div class="field"><label>Label Size</label><input type="number" id="label-size" value="13" min="8" max="30" onchange="renderDiagram()"></div>
-            <div class="field"><label>Label Color</label><input type="color" id="label-color" value="#333333" onchange="renderDiagram()"></div>
-          </div>
-          <div class="row-2">
-            <div class="field"><label>Tick Size</label><input type="number" id="tick-size" value="11" min="6" max="24" onchange="renderDiagram()"></div>
-            <div class="field"><label>Tick Color</label><input type="color" id="tick-color" value="#444444" onchange="renderDiagram()"></div>
-          </div>
-          <hr class="divider">
-          <div class="field">
-            <label>Zoom</label>
-            <div class="slider-row">
-              <input type="range" id="zoom-slider" min="40" max="250" value="100" oninput="setZoom(this.value)">
-              <span class="slider-val" id="zoom-val">100%</span>
-            </div>
-          </div>
-        </div>
-      </div>
+  STATE.regionLabelOffsets[key] = { x: cx - tw / 2, y: cy - th / 2 };
+}
 
-      <!-- ── 5. REGIONS ───────────────────────────────────────── -->
-      <div class="panel" id="panel-regions">
-        <div class="panel-header" onclick="togglePanel('panel-regions')">
-          <span class="panel-title">Regions</span>
-          <span class="panel-chevron">▼</span>
-        </div>
-        <div class="panel-body">
-          <!-- Solid -->
-          <div class="field">
-            <div class="toggle-wrap">
-              <span class="toggle-label">Fill Solid Region</span>
-              <label class="toggle-switch">
-                <input type="checkbox" id="fill-solid" onchange="renderDiagram()">
-                <span class="toggle-slider"></span>
-              </label>
-            </div>
-            <div class="color-row" style="margin-top:5px;">
-              <label>Color</label>
-              <input type="color" id="color-solid" value="#b3cde3" onchange="renderDiagram()">
-              <label style="margin-left:10px;">Opacity</label>
-              <input type="range" min="5" max="80" value="35" id="opacity-solid" style="width:70px;" oninput="renderDiagram()">
-            </div>
-            <div class="toggle-wrap" style="margin-top:5px;">
-              <span class="toggle-label">Show "SOLID" Label</span>
-              <label class="toggle-switch">
-                <input type="checkbox" id="label-solid" onchange="renderDiagram()">
-                <span class="toggle-slider"></span>
-              </label>
-            </div>
-          </div>
-          <hr class="divider">
-          <!-- Liquid -->
-          <div class="field">
-            <div class="toggle-wrap">
-              <span class="toggle-label">Fill Liquid Region</span>
-              <label class="toggle-switch">
-                <input type="checkbox" id="fill-liquid" onchange="renderDiagram()">
-                <span class="toggle-slider"></span>
-              </label>
-            </div>
-            <div class="color-row" style="margin-top:5px;">
-              <label>Color</label>
-              <input type="color" id="color-liquid" value="#8ec6f7" onchange="renderDiagram()">
-              <label style="margin-left:10px;">Opacity</label>
-              <input type="range" min="5" max="80" value="35" id="opacity-liquid" style="width:70px;" oninput="renderDiagram()">
-            </div>
-            <div class="toggle-wrap" style="margin-top:5px;">
-              <span class="toggle-label">Show "LIQUID" Label</span>
-              <label class="toggle-switch">
-                <input type="checkbox" id="label-liquid" onchange="renderDiagram()">
-                <span class="toggle-slider"></span>
-              </label>
-            </div>
-          </div>
-          <hr class="divider">
-          <!-- Gas -->
-          <div class="field">
-            <div class="toggle-wrap">
-              <span class="toggle-label">Fill Gas Region</span>
-              <label class="toggle-switch">
-                <input type="checkbox" id="fill-gas" onchange="renderDiagram()">
-                <span class="toggle-slider"></span>
-              </label>
-            </div>
-            <div class="color-row" style="margin-top:5px;">
-              <label>Color</label>
-              <input type="color" id="color-gas" value="#fde8a8" onchange="renderDiagram()">
-              <label style="margin-left:10px;">Opacity</label>
-              <input type="range" min="5" max="80" value="35" id="opacity-gas" style="width:70px;" oninput="renderDiagram()">
-            </div>
-            <div class="toggle-wrap" style="margin-top:5px;">
-              <span class="toggle-label">Show "GAS" Label</span>
-              <label class="toggle-switch">
-                <input type="checkbox" id="label-gas" onchange="renderDiagram()">
-                <span class="toggle-slider"></span>
-              </label>
-            </div>
-          </div>
-          <hr class="divider">
-          <!-- Supercritical -->
-          <div class="field">
-            <div class="toggle-wrap">
-              <span class="toggle-label">Show Supercritical Region</span>
-              <label class="toggle-switch">
-                <input type="checkbox" id="fill-super" onchange="renderDiagram()">
-                <span class="toggle-slider"></span>
-              </label>
-            </div>
-            <div class="color-row" style="margin-top:5px;">
-              <label>Color</label>
-              <input type="color" id="color-super" value="#d4aadd" onchange="renderDiagram()">
-              <label style="margin-left:10px;">Opacity</label>
-              <input type="range" min="5" max="80" value="30" id="opacity-super" style="width:70px;" oninput="renderDiagram()">
-            </div>
-            <div class="toggle-wrap" style="margin-top:5px;">
-              <span class="toggle-label">Show "SUPERCRITICAL" Label</span>
-              <label class="toggle-switch">
-                <input type="checkbox" id="label-super" onchange="renderDiagram()">
-                <span class="toggle-slider"></span>
-              </label>
-            </div>
-          </div>
-          <hr class="divider">
-          <div class="row-2">
-            <div class="field"><label>Region Label Size</label><input type="number" id="region-label-size" value="14" min="8" max="32" onchange="renderDiagram()"></div>
-            <div class="field"><label>Label Color</label><input type="color" id="region-label-color" value="#333333" onchange="renderDiagram()"></div>
-          </div>
-        </div>
-      </div>
+// ── Hit-test a rotated rectangle bbox (used for arrow labels) ─────────────
+function _hitRotatedRect(pos, bbox) {
+  if (!bbox) return false;
+  const dx = pos.x - bbox.cx, dy = pos.y - bbox.cy;
+  const cosA = Math.cos(-bbox.angle), sinA = Math.sin(-bbox.angle);
+  const lx   =  dx * cosA - dy * sinA;
+  const ly   =  dx * sinA + dy * cosA;
+  return Math.abs(lx) <= bbox.w / 2 + 4 && Math.abs(ly) <= bbox.h / 2 + 4;
+}
 
-      <!-- ── 6. PHASE BOUNDARIES ──────────────────────────────── -->
-      <div class="panel" id="panel-boundaries">
-        <div class="panel-header" onclick="togglePanel('panel-boundaries')">
-          <span class="panel-title">Phase Boundaries</span>
-          <span class="panel-chevron">▼</span>
-        </div>
-        <div class="panel-body">
-          <div class="field">
-            <label>Solid–Liquid Line</label>
-            <div class="row-2">
-              <div class="color-row"><label>Color</label><input type="color" id="line-sl" value="#222222" onchange="renderDiagram()"></div>
-              <div class="field"><label>Width</label><input type="number" id="width-sl" value="2" min="0.5" max="8" step="0.5" onchange="renderDiagram()"></div>
-            </div>
-          </div>
-          <div class="field">
-            <label>Liquid–Vapor Line</label>
-            <div class="row-2">
-              <div class="color-row"><label>Color</label><input type="color" id="line-lv" value="#222222" onchange="renderDiagram()"></div>
-              <div class="field"><label>Width</label><input type="number" id="width-lv" value="2" min="0.5" max="8" step="0.5" onchange="renderDiagram()"></div>
-            </div>
-          </div>
-          <div class="field">
-            <label>Solid–Vapor Line</label>
-            <div class="row-2">
-              <div class="color-row"><label>Color</label><input type="color" id="line-sv" value="#222222" onchange="renderDiagram()"></div>
-              <div class="field"><label>Width</label><input type="number" id="width-sv" value="2" min="0.5" max="8" step="0.5" onchange="renderDiagram()"></div>
-            </div>
-          </div>
-          <hr class="divider">
-          <!-- Water anomaly highlight toggle -->
-          <div id="water-anomaly-section" style="display:none; flex-direction:column; gap:8px;">
-            <div class="toggle-wrap">
-              <span class="toggle-label">Highlight Negative Slope (Water)</span>
-              <label class="toggle-switch">
-                <input type="checkbox" id="toggle-anomaly" onchange="renderDiagram()">
-                <span class="toggle-slider"></span>
-              </label>
-            </div>
-            <div class="color-row">
-              <label>Highlight Color</label>
-              <input type="color" id="anomaly-color" value="#e74c3c" onchange="renderDiagram()">
-            </div>
-            <div class="anomaly-badge visible" id="anomaly-info-badge" style="display:none;">
-              <span class="icon">⚗</span>
-              <span>Water's solid–liquid line slopes left — higher pressure lowers the melting point. Toggle the highlight to draw student attention to this anomaly.</span>
-            </div>
-          </div>
-        </div>
-      </div>
+function moveMarkerLabel(bkey, pos) {
+  // bkey = 'triple:label' or 'critical:pair' etc.
+  const parts = bkey.split(':');
+  const markerKey = parts[0];
+  const cd = STATE.mode === 'fake' ? STATE.fakeCompound : STATE.compoundData;
+  if (!cd) return;
+  const pt = _getMarkerPt(markerKey, cd);
+  if (!pt) return;
+  const dotCv = dataToCanvas(pt.T, pt.P);
+  STATE.labelOverrides = STATE.labelOverrides || {};
+  STATE.labelOverrides[bkey] = {
+    dx: (pos.x - STATE.drag.ox) - dotCv.x,
+    dy: (pos.y - STATE.drag.oy) - dotCv.y
+  };
+}
 
-      <!-- ── 7. SPECIAL MARKERS ───────────────────────────────── -->
-      <div class="panel" id="panel-markers">
-        <div class="panel-header" onclick="togglePanel('panel-markers')">
-          <span class="panel-title">Special Markers</span>
-          <span class="panel-chevron">▼</span>
-        </div>
-        <div class="panel-body">
+function movePointLabel(bkey, pos) {
+  // bkey = 'pt:5:label' or 'pt:5:pair'
+  const [, idStr] = bkey.split(':');
+  const pt = STATE.points.find(p => Number(p.id) === Number(idStr));
+  if (!pt) return;
+  const dotCv = dataToCanvas(pt.T, pt.P);
+  STATE.labelOverrides = STATE.labelOverrides || {};
+  STATE.labelOverrides[bkey] = {
+    dx: (pos.x - STATE.drag.ox) - dotCv.x,
+    dy: (pos.y - STATE.drag.oy) - dotCv.y
+  };
+}
 
-          <!-- Triple Point -->
-          <div class="field">
-            <div class="toggle-wrap">
-              <span class="toggle-label" style="font-weight:600; color:var(--text);">Triple Point</span>
-              <label class="toggle-switch">
-                <input type="checkbox" id="show-triple" checked onchange="renderDiagram()">
-                <span class="toggle-slider"></span>
-              </label>
-            </div>
-            <div class="row-2" style="margin-top:6px;">
-              <div class="color-row"><label>Dot Color</label><input type="color" id="triple-color" value="#e74c3c" onchange="renderDiagram()"></div>
-              <div class="field"><label>Dot Size</label><input type="number" id="triple-size" value="6" min="2" max="16" onchange="renderDiagram()"></div>
-            </div>
-            <input type="text" id="triple-label" value="Triple Point" placeholder="Label text" style="margin-top:5px;" oninput="renderDiagram()">
-            <div class="toggle-wrap" style="margin-top:5px;">
-              <span class="toggle-label">Show Ordered Pair</span>
-              <label class="toggle-switch">
-                <input type="checkbox" id="triple-pair" onchange="renderDiagram()">
-                <span class="toggle-slider"></span>
-              </label>
-            </div>
-            <div class="toggle-wrap">
-              <span class="toggle-label">Dotted Lines to Axes</span>
-              <label class="toggle-switch">
-                <input type="checkbox" id="triple-lines" onchange="renderDiagram()">
-                <span class="toggle-slider"></span>
-              </label>
-            </div>
-            <div class="row-2">
-              <div class="color-row"><label>Line Color</label><input type="color" id="triple-line-color" value="#e74c3c" onchange="renderDiagram()"></div>
-              <div class="field"><label>Line Width</label><input type="number" id="triple-line-width" value="1" min="0.5" max="4" step="0.5" onchange="renderDiagram()"></div>
-            </div>
-          </div>
+// ── Cursor detection ───────────────────────────────────────────────────────
+function findNearLabel(pos) {
+  const allBoxes = [
+    ...Object.values(STATE._regionLabelBoxes || {}),
+    ...Object.values(STATE._markerLabelBoxes || {}),
+    ...Object.values(STATE._pointLabelBoxes  || {})
+  ];
+  if (allBoxes.some(b => b && _lhit(pos, b))) return true;
+  // Arrow labels use rotated bboxes
+  return STATE.annotations.some(ann =>
+    ann.type === 'arrow' && ann.label && ann._labelBbox &&
+    typeof _hitRotatedRect === 'function' && _hitRotatedRect(pos, ann._labelBbox)
+  );
+}
 
-          <hr class="divider">
+// ── Reset all override state ───────────────────────────────────────────────
+function resetAllLabelOverrides() {
+  STATE.labelOverrides     = {};
+  STATE.regionLabelOffsets = {};
+}
 
-          <!-- Critical Point -->
-          <div class="field">
-            <div class="toggle-wrap">
-              <span class="toggle-label" style="font-weight:600; color:var(--text);">Critical Point</span>
-              <label class="toggle-switch">
-                <input type="checkbox" id="show-critical" checked onchange="renderDiagram()">
-                <span class="toggle-slider"></span>
-              </label>
-            </div>
-            <div class="row-2" style="margin-top:6px;">
-              <div class="color-row"><label>Dot Color</label><input type="color" id="critical-color" value="#8e44ad" onchange="renderDiagram()"></div>
-              <div class="field"><label>Dot Size</label><input type="number" id="critical-size" value="6" min="2" max="16" onchange="renderDiagram()"></div>
-            </div>
-            <input type="text" id="critical-label" value="Critical Point" placeholder="Label text" style="margin-top:5px;" oninput="renderDiagram()">
-            <div class="toggle-wrap" style="margin-top:5px;">
-              <span class="toggle-label">Show Ordered Pair</span>
-              <label class="toggle-switch">
-                <input type="checkbox" id="critical-pair" onchange="renderDiagram()">
-                <span class="toggle-slider"></span>
-              </label>
-            </div>
-            <div class="toggle-wrap">
-              <span class="toggle-label">Dotted Lines to Axes</span>
-              <label class="toggle-switch">
-                <input type="checkbox" id="critical-lines" onchange="renderDiagram()">
-                <span class="toggle-slider"></span>
-              </label>
-            </div>
-            <div class="row-2">
-              <div class="color-row"><label>Line Color</label><input type="color" id="critical-line-color" value="#8e44ad" onchange="renderDiagram()"></div>
-              <div class="field"><label>Line Width</label><input type="number" id="critical-line-width" value="1" min="0.5" max="4" step="0.5" onchange="renderDiagram()"></div>
-            </div>
-          </div>
+// ═══════════════════════════════════════════════════════════════════════════
+// ── ARROW ATTACHMENT RESOLUTION ────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════
 
-          <hr class="divider">
+// Returns {T,P} for a given attachment value + the "other" endpoint (used for
+// closest-edge calculation on text boxes).
+function _resolveAttachPos(attachVal, otherT, otherP) {
+  if (!attachVal) return null;
 
-          <!-- Normal Melting Point -->
-          <div class="field" id="nmp-section">
-            <div class="toggle-wrap">
-              <span class="toggle-label" style="font-weight:600; color:var(--text);">Normal Melting Point</span>
-              <label class="toggle-switch">
-                <input type="checkbox" id="show-nmp" onchange="renderDiagram()">
-                <span class="toggle-slider"></span>
-              </label>
-            </div>
-            <div class="row-2" style="margin-top:6px;">
-              <div class="color-row"><label>Dot Color</label><input type="color" id="nmp-color" value="#2980b9" onchange="renderDiagram()"></div>
-              <div class="field"><label>Dot Size</label><input type="number" id="nmp-size" value="5" min="2" max="16" onchange="renderDiagram()"></div>
-            </div>
-            <input type="text" id="nmp-label" value="Normal Melting Point" placeholder="Label text" style="margin-top:5px;" oninput="renderDiagram()">
-            <div class="toggle-wrap" style="margin-top:5px;">
-              <span class="toggle-label">Show Ordered Pair</span>
-              <label class="toggle-switch">
-                <input type="checkbox" id="nmp-pair" onchange="renderDiagram()">
-                <span class="toggle-slider"></span>
-              </label>
-            </div>
-            <div class="toggle-wrap">
-              <span class="toggle-label">Dotted Lines to Axes</span>
-              <label class="toggle-switch">
-                <input type="checkbox" id="nmp-lines" onchange="renderDiagram()">
-                <span class="toggle-slider"></span>
-              </label>
-            </div>
-            <div class="row-2">
-              <div class="color-row"><label>Line Color</label><input type="color" id="nmp-line-color" value="#2980b9" onchange="renderDiagram()"></div>
-              <div class="field"><label>Line Width</label><input type="number" id="nmp-line-width" value="1" min="0.5" max="4" step="0.5" onchange="renderDiagram()"></div>
-            </div>
-          </div>
+  const str = String(attachVal);
 
-          <hr class="divider">
+  // Legacy: plain number → treat as textbox ID
+  if (!isNaN(Number(str)) && str !== '') {
+    const box = STATE.annotations.find(a => Number(a.id) === Number(str) && a.type === 'text');
+    return box ? _closestPointOnTextBox(box, otherT, otherP) : null;
+  }
 
-          <!-- Normal Boiling Point -->
-          <div class="field">
-            <div class="toggle-wrap">
-              <span class="toggle-label" style="font-weight:600; color:var(--text);">Normal Boiling / Sublimation Point</span>
-              <label class="toggle-switch">
-                <input type="checkbox" id="show-nbp" onchange="renderDiagram()">
-                <span class="toggle-slider"></span>
-              </label>
-            </div>
-            <div class="row-2" style="margin-top:6px;">
-              <div class="color-row"><label>Dot Color</label><input type="color" id="nbp-color" value="#27ae60" onchange="renderDiagram()"></div>
-              <div class="field"><label>Dot Size</label><input type="number" id="nbp-size" value="5" min="2" max="16" onchange="renderDiagram()"></div>
-            </div>
-            <input type="text" id="nbp-label" value="Normal Boiling Point" placeholder="Label text" style="margin-top:5px;" oninput="renderDiagram()">
-            <div class="toggle-wrap" style="margin-top:5px;">
-              <span class="toggle-label">Show Ordered Pair</span>
-              <label class="toggle-switch">
-                <input type="checkbox" id="nbp-pair" onchange="renderDiagram()">
-                <span class="toggle-slider"></span>
-              </label>
-            </div>
-            <div class="toggle-wrap">
-              <span class="toggle-label">Dotted Lines to Axes</span>
-              <label class="toggle-switch">
-                <input type="checkbox" id="nbp-lines" onchange="renderDiagram()">
-                <span class="toggle-slider"></span>
-              </label>
-            </div>
-            <div class="row-2">
-              <div class="color-row"><label>Line Color</label><input type="color" id="nbp-line-color" value="#27ae60" onchange="renderDiagram()"></div>
-              <div class="field"><label>Line Width</label><input type="number" id="nbp-line-width" value="1" min="0.5" max="4" step="0.5" onchange="renderDiagram()"></div>
-            </div>
-          </div>
+  if (str.startsWith('marker:')) {
+    const key = str.slice(7);
+    const cd  = STATE.mode === 'fake' ? STATE.fakeCompound : STATE.compoundData;
+    if (!cd) return null;
+    const pt  = _getMarkerPt(key, cd);
+    return pt ? { T: pt.T, P: pt.P } : null;
+  }
 
-        </div>
-      </div>
+  if (str.startsWith('point:')) {
+    const ptId = Number(str.slice(6));
+    const pt   = STATE.points.find(p => Number(p.id) === ptId);
+    return pt ? { T: pt.T, P: pt.P } : null;
+  }
 
-      <!-- ── 8. USER POINTS ────────────────────────────────────── -->
-      <div class="panel" id="panel-points">
-        <div class="panel-header" onclick="togglePanel('panel-points')">
-          <span class="panel-title">User Points</span>
-          <span class="panel-chevron">▼</span>
-        </div>
-        <div class="panel-body">
-          <div class="empty-hint" id="points-hint">Click anywhere on the graph to plot a point.</div>
-          <div class="field">
-            <label>New Point Defaults</label>
-            <div class="row-2">
-              <div class="color-row"><label>Dot Color</label><input type="color" id="default-point-color" value="#e67e22"></div>
-              <div class="field"><label>Dot Size</label><input type="number" id="default-point-size" value="5" min="2" max="16"></div>
-            </div>
-            <div class="toggle-wrap" style="margin-top:5px;">
-              <span class="toggle-label">Dotted Lines by Default</span>
-              <label class="toggle-switch">
-                <input type="checkbox" id="default-point-lines">
-                <span class="toggle-slider"></span>
-              </label>
-            </div>
-            <div class="toggle-wrap">
-              <span class="toggle-label">Ordered Pair by Default</span>
-              <label class="toggle-switch">
-                <input type="checkbox" id="default-point-pair" checked>
-                <span class="toggle-slider"></span>
-              </label>
-            </div>
-          </div>
-          <div class="point-list" id="point-list"></div>
-        </div>
-      </div>
+  if (str.startsWith('textbox:')) {
+    const annId = Number(str.slice(8));
+    const box   = STATE.annotations.find(a => Number(a.id) === annId && a.type === 'text');
+    return box ? _closestPointOnTextBox(box, otherT, otherP) : null;
+  }
 
-      <!-- ── 9. ANNOTATIONS ────────────────────────────────────── -->
-      <div class="panel" id="panel-annotations">
-        <div class="panel-header" onclick="togglePanel('panel-annotations')">
-          <span class="panel-title">Annotations</span>
-          <span class="panel-chevron">▼</span>
-        </div>
-        <div class="panel-body">
-          <div class="row-2">
-            <button class="btn btn-navy" onclick="startAddTextAnnotation()">＋ Text Box</button>
-            <button class="btn btn-navy" onclick="startAddArrow()">＋ Arrow</button>
-          </div>
-          <div class="empty-hint" id="annotations-hint">No annotations yet.</div>
-          <div class="annotation-list" id="annotation-list"></div>
-          <hr class="divider">
-          <div class="toggle-wrap">
-            <span class="toggle-label">Show Annotations in Export</span>
-            <label class="toggle-switch">
-              <input type="checkbox" id="export-annotations" checked>
-              <span class="toggle-slider"></span>
-            </label>
-          </div>
-        </div>
-      </div>
+  return null;
+}
 
-      <!-- ── 10. FAKE DIAGRAM CONTROLS ───────────────────────── -->
-      <div class="panel" id="panel-fake-controls" style="display:none;">
-        <div class="panel-header" onclick="togglePanel('panel-fake-controls')">
-          <span class="panel-title">Fake Diagram Controls</span>
-          <span class="panel-chevron">▼</span>
-        </div>
-        <div class="panel-body">
-          <div class="field">
-            <label>Name This Compound</label>
-            <input type="text" id="fake-name" placeholder="e.g. Compound X" oninput="updateFakeName()">
-          </div>
-          <button class="btn btn-gold" onclick="saveFakeCompound()">💾 Save to Library</button>
-          <hr class="divider">
-          <div class="toggle-wrap">
-            <span class="toggle-label">Snap Drag to Grid</span>
-            <label class="toggle-switch">
-              <input type="checkbox" id="snap-to-grid" onchange="renderDiagram()">
-              <span class="toggle-slider"></span>
-            </label>
-          </div>
-          <div class="empty-hint" style="text-align:left; font-style:normal; font-size:0.71rem; color:var(--text-muted);">
-            Drag the <strong style="color:var(--gold)">triple point</strong> or <strong style="color:var(--gold)">critical point</strong> to reposition. Drag the <strong style="color:var(--gold)">end handles</strong> on each equilibrium line to adjust slope.
-          </div>
-        </div>
-      </div>
+// Returns the resolved position for one end of an arrow, honouring attachments.
+function _getArrowEndpoint(arrow, endpoint) {
+  const attachVal = endpoint === 'head' ? arrow.attachHead : arrow.attachTail;
+  const freeT     = endpoint === 'head' ? arrow.T  : arrow.T2;
+  const freeP     = endpoint === 'head' ? arrow.P  : arrow.P2;
+  const otherT    = endpoint === 'head' ? arrow.T2 : arrow.T;
+  const otherP    = endpoint === 'head' ? arrow.P2 : arrow.P;
+  if (!attachVal) return { T: freeT, P: freeP };
+  return _resolveAttachPos(attachVal, otherT, otherP) || { T: freeT, P: freeP };
+}
 
-      <!-- ── 11. EXPORT ────────────────────────────────────────── -->
-      <div class="panel" id="panel-export">
-        <div class="panel-header" onclick="togglePanel('panel-export')">
-          <span class="panel-title">Export</span>
-          <span class="panel-chevron">▼</span>
-        </div>
-        <div class="panel-body">
-          <div class="toggle-wrap">
-            <span class="toggle-label">Transparent Background</span>
-            <label class="toggle-switch">
-              <input type="checkbox" id="export-transparent">
-              <span class="toggle-slider"></span>
-            </label>
-          </div>
-          <button class="btn btn-gold" onclick="exportPNG()">⬇ Download PNG</button>
-          <button class="btn btn-navy" onclick="copyToClipboard()">⎘ Copy to Clipboard</button>
-          <div class="export-row">
-            <button class="btn btn-navy" onclick="showEmbedModal()">&lt;/&gt; Get Embed Code</button>
-            <div class="tooltip-wrap">
-              <span class="tooltip-icon">?</span>
-              <div class="tooltip-box">
-                <strong>How to embed in Canvas:</strong><br><br>
-                1. Click "Get Embed Code"<br>
-                2. Copy the generated HTML snippet<br>
-                3. In Canvas, open the page editor<br>
-                4. Click the HTML editor button ( &lt;/&gt; )<br>
-                5. Paste the snippet where you want the diagram to appear<br>
-                6. Save the page<br><br>
-                The diagram will render as a static image inside Canvas. No internet connection or login required.
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
+// Closest point on the text box perimeter to (epT, epP).
+function _closestPointOnTextBox(box, epT, epP) {
+  const cvBox = dataToCanvas(box.T, box.P);
+  const ctx   = el('phaseDiagramCanvas').getContext('2d');
+  ctx.font    = `${box.fontSize}px DM Sans, sans-serif`;
+  const lines = (typeof _wrapText === 'function')
+    ? _wrapText(ctx, box.text, 180)
+    : [box.text];
+  const lineH = box.fontSize + 4;
+  const pad   = 6;
+  const bw    = Math.min(
+    Math.max(...lines.map(l => ctx.measureText(l).width), 20), 180
+  ) + pad * 2;
+  const bh    = lines.length * lineH + pad * 2;
 
-    </aside>
-    <!-- ══════════════════ END SIDEBAR ══════════════════ -->
+  const boxL = cvBox.x, boxR = cvBox.x + bw;
+  const boxT = cvBox.y - bh / 2, boxB = cvBox.y + bh / 2;
 
-    <!-- ── CANVAS AREA ──────────────────────────────────────────── -->
-    <main class="canvas-area" id="canvas-area">
-      <div class="canvas-container" id="canvas-container">
-        <canvas id="phaseDiagramCanvas" width="800" height="600"></canvas>
-      </div>
+  const epCv = dataToCanvas(epT, epP);
+  let cx, cy;
 
-      <!-- Zoom controls (bottom-right of canvas area) -->
-      <div class="zoom-bar">
-        <button class="zoom-btn" onclick="adjustZoom(-10)" title="Zoom out">−</button>
-        <span class="zoom-pct" id="zoom-display">100%</span>
-        <button class="zoom-btn" onclick="adjustZoom(10)" title="Zoom in">＋</button>
-        <button class="zoom-btn" onclick="resetZoom()" title="Reset zoom" style="font-size:0.7rem;">⟳</button>
-      </div>
-    </main>
+  const inside = epCv.x >= boxL && epCv.x <= boxR && epCv.y >= boxT && epCv.y <= boxB;
+  if (inside) {
+    const dists = [
+      { v: epCv.x - boxL, fx: boxL,   fy: epCv.y },
+      { v: boxR - epCv.x, fx: boxR,   fy: epCv.y },
+      { v: epCv.y - boxT, fx: epCv.x, fy: boxT   },
+      { v: boxB - epCv.y, fx: epCv.x, fy: boxB   },
+    ];
+    const nearest = dists.reduce((a, b) => a.v < b.v ? a : b);
+    cx = nearest.fx; cy = nearest.fy;
+  } else {
+    cx = Math.max(boxL, Math.min(boxR, epCv.x));
+    cy = Math.max(boxT, Math.min(boxB, epCv.y));
+  }
+  return canvasToData(cx, cy);
+}
 
-  </div><!-- end app-body -->
+// ── Attachment dropdown options (all target types) ─────────────────────────
+function _attachOptionsHtml(selectedVal) {
+  const sel = String(selectedVal || '');
+  let html  = `<option value="">— None —</option>`;
 
-  <!-- ── EMBED CODE MODAL ──────────────────────────────────────── -->
-  <div class="modal-overlay" id="modal-embed">
-    <div class="modal">
-      <h2>Canvas Embed Code</h2>
-      <p>Copy this HTML and paste it into the Canvas page editor using the &lt;/&gt; HTML view. The diagram will display as a static image.</p>
-      <textarea id="embed-code" readonly onclick="this.select()"></textarea>
-      <div class="modal-actions">
-        <button class="btn btn-navy btn-sm" onclick="copyEmbedCode()">Copy Code</button>
-        <button class="btn btn-gold btn-sm" onclick="closeModal('modal-embed')">Done</button>
-      </div>
-    </div>
-  </div>
+  const cd = STATE.mode === 'fake' ? STATE.fakeCompound : STATE.compoundData;
+  const markerDefs = [
+    { key: 'triple',   label: 'Triple Point'        },
+    { key: 'critical', label: 'Critical Point'       },
+    { key: 'nmp',      label: 'Normal Melting Point' },
+    { key: 'nbp',      label: 'Normal Boiling Point' },
+  ];
+  const visMarkers = markerDefs.filter(m =>
+    STATE.markers[m.key]?.show && cd && _getMarkerPt(m.key, cd)
+  );
+  if (visMarkers.length) {
+    html += `<optgroup label="Special Markers">`;
+    visMarkers.forEach(m => {
+      const v = `marker:${m.key}`;
+      html += `<option value="${v}" ${sel === v ? 'selected' : ''}>${m.label}</option>`;
+    });
+    html += `</optgroup>`;
+  }
 
-  <!-- ── CONFIRM DELETE MODAL ─────────────────────────────────── -->
-  <div class="modal-overlay" id="modal-confirm">
-    <div class="modal">
-      <h2>Delete Compound?</h2>
-      <p id="confirm-msg">This compound will be permanently removed from your library.</p>
-      <div class="modal-actions">
-        <button class="btn btn-navy btn-sm" onclick="closeModal('modal-confirm')">Cancel</button>
-        <button class="btn btn-red btn-sm" id="confirm-delete-btn">Delete</button>
-      </div>
-    </div>
-  </div>
+  if (STATE.points.length) {
+    html += `<optgroup label="User Points">`;
+    STATE.points.forEach((pt, i) => {
+      const v    = `point:${pt.id}`;
+      const name = (pt.label && pt.label.trim()) ? pt.label.trim() : `P${i + 1}`;
+      html += `<option value="${v}" ${sel === v ? 'selected' : ''}>${name} (${formatVal(pt.T)}, ${formatVal(pt.P)})</option>`;
+    });
+    html += `</optgroup>`;
+  }
 
-  <!-- ── TOAST CONTAINER ──────────────────────────────────────── -->
-  <div id="toast-container"></div>
+  const boxes = STATE.annotations.filter(a => a.type === 'text');
+  if (boxes.length) {
+    html += `<optgroup label="Text Boxes">`;
+    boxes.forEach(b => {
+      const v       = `textbox:${b.id}`;
+      const preview = b.text.length > 18 ? b.text.substring(0,18) + '…' : b.text;
+      html += `<option value="${v}" ${sel === v ? 'selected' : ''}>Box #${b.id}: "${preview}"</option>`;
+    });
+    html += `</optgroup>`;
+  }
+  return html;
+}
 
-  <!-- ── SCRIPTS (load order matters) ─────────────────────────── -->
-  <script src="phase-diagram-data.js"></script>
-  <script src="phase-diagram-draw.js"></script>
-  <script src="phase-diagram-colorpicker.js"></script>
-  <script src="phase-diagram-controls.js"></script>
-  <script src="phase-diagram-real.js"></script>
-  <script src="phase-diagram-fake.js"></script>
-  <script src="phase-diagram-points.js"></script>
-  <script src="phase-diagram-annotations.js"></script>
-  <script src="phase-diagram-labels.js"></script>
-  <script src="phase-diagram-export.js"></script>
+function _refreshAttachDropdowns() {
+  STATE.annotations.forEach(ann => {
+    if (ann.type !== 'arrow') return;
+    const hEl = document.getElementById(`ann-attach-head-${ann.id}`);
+    const tEl = document.getElementById(`ann-attach-tail-${ann.id}`);
+    if (hEl) hEl.innerHTML = _attachOptionsHtml(ann.attachHead);
+    if (tEl) tEl.innerHTML = _attachOptionsHtml(ann.attachTail);
+  });
+}
 
-</body>
-</html>
+// Helper: get marker point from compound data
+function _getMarkerPt(key, cd) {
+  if (!cd) return null;
+  const map = { triple: cd.triplePoint, critical: cd.criticalPoint,
+                nmp: cd.normalMeltingPoint, nbp: cd.normalBoilingPoint };
+  return map[key] || null;
+}
