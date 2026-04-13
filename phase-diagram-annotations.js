@@ -58,29 +58,6 @@ function _pointInTextBox(pos, ann) {
          pos.y >= cv.y - bh/2  && pos.y <= cv.y + bh/2;
 }
 
-// ── Options HTML for attachment dropdowns ─────────────────────────────────
-function _textBoxOptionsHtml(selectedId) {
-  const boxes = STATE.annotations.filter(a => a.type === 'text');
-  let html = `<option value="">— None —</option>`;
-  boxes.forEach(b => {
-    const preview = b.text.length > 18 ? b.text.substring(0, 18) + '…' : b.text;
-    const sel     = selectedId === b.id ? 'selected' : '';
-    html += `<option value="${b.id}" ${sel}>Box #${b.id}: "${preview}"</option>`;
-  });
-  return html;
-}
-
-// Rebuild attachment dropdowns on all arrow cards when text box list changes
-function _refreshAttachDropdowns() {
-  STATE.annotations.forEach(ann => {
-    if (ann.type !== 'arrow') return;
-    const hEl = document.getElementById(`ann-attach-head-${ann.id}`);
-    const tEl = document.getElementById(`ann-attach-tail-${ann.id}`);
-    if (hEl) hEl.innerHTML = _textBoxOptionsHtml(ann.attachHead);
-    if (tEl) tEl.innerHTML = _textBoxOptionsHtml(ann.attachTail);
-  });
-}
-
 // ── Click intercept ────────────────────────────────────────────────────────
 function handleAnnotationClick(pos) {
   if (_pendingAnnotType === 'text') {
@@ -121,7 +98,7 @@ function _placeTextAnnotation(pos) {
   STATE.annotations.push(ann);
   el('annotations-hint').style.display = 'none';
   buildAnnotationCard(ann);
-  _refreshAttachDropdowns();  // update arrow cards to include new box
+  if (typeof _refreshAttachDropdowns === 'function') _refreshAttachDropdowns();
   renderDiagram();
 }
 
@@ -193,8 +170,10 @@ function _renderTextAnnotation(ctx, ann, isExport) {
 }
 
 function _renderArrowAnnotation(ctx, ann, isExport) {
-  const head = dataToCanvas(ann.T,  ann.P);
-  const tail = dataToCanvas(ann.T2, ann.P2);
+  const headPt = (typeof _getArrowEndpoint === 'function') ? _getArrowEndpoint(ann, 'head') : { T: ann.T,  P: ann.P  };
+  const tailPt = (typeof _getArrowEndpoint === 'function') ? _getArrowEndpoint(ann, 'tail') : { T: ann.T2, P: ann.P2 };
+  const head   = dataToCanvas(headPt.T, headPt.P);
+  const tail   = dataToCanvas(tailPt.T, tailPt.P);
 
   ctx.save();
   ctx.strokeStyle = ann.color;
@@ -268,8 +247,11 @@ function startAnnotationDrag(pos) {
     const ann = STATE.annotations[i];
 
     if (ann.type === 'arrow') {
-      const head = dataToCanvas(ann.T,  ann.P);
-      const tail = dataToCanvas(ann.T2, ann.P2);
+      // Use render-time resolved positions so handles appear where they're drawn
+      const headPt = (typeof _getArrowEndpoint === 'function') ? _getArrowEndpoint(ann, 'head') : { T: ann.T,  P: ann.P  };
+      const tailPt = (typeof _getArrowEndpoint === 'function') ? _getArrowEndpoint(ann, 'tail') : { T: ann.T2, P: ann.P2 };
+      const head   = dataToCanvas(headPt.T, headPt.P);
+      const tail   = dataToCanvas(tailPt.T, tailPt.P);
       if (Math.hypot(pos.x - head.x, pos.y - head.y) <= ANN_HANDLE_R + 2) {
         STATE.drag.active   = true;
         STATE.drag.type     = 'annotation';
@@ -298,13 +280,12 @@ function startAnnotationDrag(pos) {
 }
 
 function moveAnnotation(id, data) {
-  const ann = STATE.annotations.find(a => a.id === id);
+  const ann = STATE.annotations.find(a => Number(a.id) === Number(id));
   if (!ann) return;
 
   if (ann.type === 'arrow') {
     const ep = STATE.drag.endpoint;
     if (ep === 'head') {
-      // Manually dragging head detaches it from any text box
       ann.attachHead = null;
       _syncAttachSelect(ann.id, 'head', null);
       ann.T  = data.T;
@@ -316,43 +297,32 @@ function moveAnnotation(id, data) {
       ann.P2 = data.P;
     }
   } else {
-    // Text box: move the box AND sync any attached arrow endpoints
+    // Text box — just move; render-time resolution in _getArrowEndpoint
+    // handles any arrows that are attached to this box automatically.
     ann.T = data.T;
     ann.P = data.P;
-    _syncAttachedArrows(ann);
   }
 }
 
-// After a text box moves, update all arrows attached to it
-function _syncAttachedArrows(textBox) {
-  const tbId = Number(textBox.id);  // normalize: prevent string vs number mismatch
-  STATE.annotations.forEach(arrow => {
-    if (arrow.type !== 'arrow') return;
-    if (arrow.attachHead != null && Number(arrow.attachHead) === tbId) {
-      arrow.T = textBox.T;
-      arrow.P = textBox.P;
-    }
-    if (arrow.attachTail != null && Number(arrow.attachTail) === tbId) {
-      arrow.T2 = textBox.T;
-      arrow.P2 = textBox.P;
-    }
-  });
-}
 
-// Called when the user picks a text box from the attachment dropdown
+// Called when the user picks an attachment target from the dropdown
 function setArrowAttach(arrowId, endpoint, rawVal) {
   const arrow = STATE.annotations.find(a => Number(a.id) === Number(arrowId));
   if (!arrow) return;
-  const boxId = (rawVal === '' || rawVal == null) ? null : Number(rawVal);
-  const box   = boxId != null ? STATE.annotations.find(a => Number(a.id) === boxId) : null;
+  const val = (rawVal === '' || rawVal == null) ? null : rawVal;
 
   if (endpoint === 'head') {
-    arrow.attachHead = boxId;
-    // Snap head to text box position immediately
-    if (box) { arrow.T  = box.T; arrow.P  = box.P; }
+    arrow.attachHead = val;
+    if (val && typeof _resolveAttachPos === 'function') {
+      const pos = _resolveAttachPos(val, arrow.T2, arrow.P2);
+      if (pos) { arrow.T = pos.T; arrow.P = pos.P; }
+    }
   } else {
-    arrow.attachTail = boxId;
-    if (box) { arrow.T2 = box.T; arrow.P2 = box.P; }
+    arrow.attachTail = val;
+    if (val && typeof _resolveAttachPos === 'function') {
+      const pos = _resolveAttachPos(val, arrow.T, arrow.P);
+      if (pos) { arrow.T2 = pos.T; arrow.P2 = pos.P; }
+    }
   }
   renderDiagram();
 }
@@ -410,16 +380,16 @@ function buildAnnotationCard(ann) {
       <button class="btn btn-red btn-sm" style="margin-top:6px;"
         onclick="removeAnnotation(${ann.id})">Remove</button>`;
   } else {
-    // Arrow card
-    const hOpts = _textBoxOptionsHtml(ann.attachHead);
-    const tOpts = _textBoxOptionsHtml(ann.attachTail);
+    // Arrow card — attachment dropdowns include markers, user points, and text boxes
+    const hOpts = (typeof _attachOptionsHtml === 'function') ? _attachOptionsHtml(ann.attachHead) : '<option value="">— None —</option>';
+    const tOpts = (typeof _attachOptionsHtml === 'function') ? _attachOptionsHtml(ann.attachTail) : '<option value="">— None —</option>';
     card.innerHTML = `
       <div class="point-card-header">
         <span class="point-card-label">→ Arrow #${ann.id}</span>
       </div>
       <div class="empty-hint" style="text-align:left;font-style:normal;font-size:0.69rem;color:var(--text-muted);">
-        Drag <strong>▲ head handle</strong> or <strong>● tail handle</strong> to reposition.
-        Attach endpoints to a text box to make them move together.
+        Drag <strong>▲ head</strong> or <strong>● tail</strong> handles to reposition.
+        Attach to a marker, point, or text box — the arrow will track it automatically.
       </div>
       <div class="field"><label>Label (optional)</label>
         <input type="text" value="${ann.label}"
@@ -433,14 +403,14 @@ function buildAnnotationCard(ann) {
             oninput="updateAnnProp(${ann.id},'width',parseFloat(this.value))"></div>
       </div>
       <div class="field">
-        <label>▲ Attach HEAD to text box</label>
+        <label>▲ Attach HEAD to…</label>
         <select id="ann-attach-head-${ann.id}"
           onchange="setArrowAttach(${ann.id},'head',this.value)">
           ${hOpts}
         </select>
       </div>
       <div class="field">
-        <label>● Attach TAIL to text box</label>
+        <label>● Attach TAIL to…</label>
         <select id="ann-attach-tail-${ann.id}"
           onchange="setArrowAttach(${ann.id},'tail',this.value)">
           ${tOpts}
@@ -469,6 +439,6 @@ function removeAnnotation(id) {
   STATE.annotations = STATE.annotations.filter(a => Number(a.id) !== numId);
   document.getElementById(`ann-card-${id}`)?.remove();
   if (!STATE.annotations.length) el('annotations-hint').style.display = '';
-  _refreshAttachDropdowns();
+  if (typeof _refreshAttachDropdowns === 'function') _refreshAttachDropdowns();
   renderDiagram();
 }
