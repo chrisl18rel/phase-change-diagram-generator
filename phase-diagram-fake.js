@@ -248,9 +248,9 @@ function startFakeDrag(pos) {
 function continueDrag(pos) {
   if (!STATE.drag.active) return;
 
-  const type = STATE.drag.type;
+  const type    = STATE.drag.type;
   const snapped = _snapIfNeeded(pos);
-  const data = canvasToData(snapped.x, snapped.y);
+  const data    = canvasToData(snapped.x, snapped.y);
 
   if (type === 'triple' || type === 'critical') {
     _moveFakeKeyPoint(type, data);
@@ -260,6 +260,12 @@ function continueDrag(pos) {
     if (typeof movePoint === 'function') movePoint(STATE.drag.id, data);
   } else if (type === 'annotation') {
     if (typeof moveAnnotation === 'function') moveAnnotation(STATE.drag.id, data);
+  } else if (type === 'region-label') {
+    if (typeof moveRegionLabel === 'function') moveRegionLabel(STATE.drag.id, snapped);
+  } else if (type === 'marker-label') {
+    if (typeof moveMarkerLabel === 'function') moveMarkerLabel(STATE.drag.id, snapped);
+  } else if (type === 'point-label') {
+    if (typeof movePointLabel === 'function') movePointLabel(STATE.drag.id, snapped);
   }
 }
 
