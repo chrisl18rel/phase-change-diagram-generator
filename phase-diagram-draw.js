@@ -246,16 +246,37 @@ function drawMarkers(ctx) {
   // Collect placed label rects for collision avoidance
   const placedRects = [];
 
-  const clampLabel = (rx, ry, rw, rh) => {
-    // Try right of dot first; if overlaps, try left; nudge vertically if needed
-    for (const prev of placedRects) {
-      const overlapX = rx < prev.x + prev.w && rx + rw > prev.x;
-      const overlapY = ry < prev.y + prev.h && ry + rh > prev.y;
-      if (overlapX && overlapY) {
-        ry = prev.y + prev.h + 3;  // push below the overlapping label
-      }
+  // Try a series of offsets to avoid collisions; returns best non-overlapping rect
+  const placeLabel = (cx, cy, rw, rh) => {
+    const tryOffsets = [
+      { dx: 8,   dy: -rh - 2 },   // right, above
+      { dx: 8,   dy: 4 },          // right, below
+      { dx: -rw - 8, dy: -rh - 2 }, // left, above
+      { dx: -rw - 8, dy: 4 },       // left, below
+      { dx: 8,   dy: -rh / 2 },    // right, mid
+      { dx: -rw - 8, dy: -rh / 2 }, // left, mid
+      { dx: -rw / 2, dy: -rh - 10 }, // centered, above
+      { dx: -rw / 2, dy: 10 },       // centered, below
+    ];
+    const { m, pw, ph } = getPlot();
+    const plotL = m.left, plotR = m.left + pw, plotT = m.top, plotB = m.top + ph;
+
+    for (const off of tryOffsets) {
+      const rx = cx + off.dx;
+      const ry = cy + off.dy;
+      // Must be inside plot area
+      if (rx < plotL || rx + rw > plotR || ry < plotT || ry + rh > plotB) continue;
+      // Must not overlap any already-placed rect
+      const overlaps = placedRects.some(p =>
+        rx < p.x + p.w + 2 && rx + rw > p.x - 2 &&
+        ry < p.y + p.h + 2 && ry + rh > p.y - 2
+      );
+      if (!overlaps) return { rx, ry, rw, rh };
     }
-    return { rx, ry, rw, rh };
+    // Fallback: nudge below the last placed rect
+    const last = placedRects[placedRects.length - 1];
+    if (last) return { rx: cx + 8, ry: last.y + last.h + 3, rw, rh };
+    return { rx: cx + 8, ry: cy - rh - 2, rw, rh };
   };
 
   Object.entries(STATE.markers).forEach(([key, mk]) => {
@@ -285,14 +306,12 @@ function drawMarkers(ctx) {
       ctx.save();
       ctx.font = `600 11px DM Sans, sans-serif`;
       const lw = ctx.measureText(mk.label).width;
-      let lx = cv.x + mk.size + 4;
-      let ly = cv.y - 2;
-      const placed = clampLabel(lx, ly - 11, lw, 13);
-      lx = placed.rx; ly = placed.ry + 11;
+      const lh = 13;
+      const placed = placeLabel(cv.x, cv.y, lw, lh);
       ctx.fillStyle    = mk.color;
       ctx.textAlign    = 'left';
-      ctx.textBaseline = 'bottom';
-      ctx.fillText(mk.label, lx, ly);
+      ctx.textBaseline = 'top';
+      ctx.fillText(mk.label, placed.rx, placed.ry);
       placedRects.push(placed);
       ctx.restore();
     }
@@ -302,14 +321,12 @@ function drawMarkers(ctx) {
       ctx.save();
       ctx.font = `11px DM Mono, monospace`;
       const pw2 = ctx.measureText(pair).width;
-      const px = cv.x + mk.size + 4;
-      let py = cv.y + 2;
-      const placed = clampLabel(px, py, pw2, 12);
-      py = placed.ry;
+      const ph2 = 12;
+      const placed = placeLabel(cv.x, cv.y, pw2, ph2);
       ctx.fillStyle    = mk.color;
       ctx.textAlign    = 'left';
       ctx.textBaseline = 'top';
-      ctx.fillText(pair, px, py);
+      ctx.fillText(pair, placed.rx, placed.ry);
       placedRects.push(placed);
       ctx.restore();
     }
@@ -318,24 +335,26 @@ function drawMarkers(ctx) {
 
 // ── Dotted lines from a canvas point to the axes ───────────────────────────
 function drawDottedLines(ctx, cv, color, width) {
-  const { m, ph } = getPlot();
+  const { m, pw, ph } = getPlot();
   const plotB = m.top + ph;
+  const plotL = m.left;
 
   ctx.save();
   ctx.strokeStyle = color;
-  ctx.lineWidth = width;
+  ctx.lineWidth   = Math.max(0.5, width);
   ctx.setLineDash([4, 4]);
+  ctx.lineCap = 'butt';
 
-  // Vertical line down to x-axis
+  // Horizontal line — LEFT to y-axis
+  ctx.beginPath();
+  ctx.moveTo(cv.x, cv.y);
+  ctx.lineTo(plotL, cv.y);
+  ctx.stroke();
+
+  // Vertical line — DOWN to x-axis
   ctx.beginPath();
   ctx.moveTo(cv.x, cv.y);
   ctx.lineTo(cv.x, plotB);
-  ctx.stroke();
-
-  // Horizontal line left to y-axis
-  ctx.beginPath();
-  ctx.moveTo(cv.x, cv.y);
-  ctx.lineTo(m.left, cv.y);
   ctx.stroke();
 
   ctx.setLineDash([]);
