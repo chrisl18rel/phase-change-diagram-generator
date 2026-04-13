@@ -410,8 +410,17 @@ function bindCanvasEvents() {
 }
 
 function updateCursorStyle(canvas, pos) {
-  const near = (typeof findNearDraggable === 'function') ? findNearDraggable(pos) : null;
-  canvas.style.cursor = near ? 'grab' : inPlotArea(pos.x, pos.y) ? 'crosshair' : 'default';
+  if (!inPlotArea(pos.x, pos.y)) { canvas.style.cursor = 'default'; return; }
+  // Check fake drag handles + arrow endpoints + user points
+  const nearHandle = (typeof findNearDraggable === 'function') ? findNearDraggable(pos) : false;
+  if (nearHandle) { canvas.style.cursor = 'grab'; return; }
+  // Check text box hover — _pointInTextBox lives in annotations.js (global scope)
+  const overTextBox = STATE.annotations.some(ann =>
+    ann.type === 'text' &&
+    typeof _pointInTextBox === 'function' &&
+    _pointInTextBox(pos, ann)
+  );
+  canvas.style.cursor = overTextBox ? 'grab' : 'crosshair';
 }
 
 // ── Main render orchestrator ───────────────────────────────────────────────
